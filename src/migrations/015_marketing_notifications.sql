@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS marketing_notifications (
+  id VARCHAR(64) NOT NULL,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(191) NOT NULL,
+  message TEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id)
+);

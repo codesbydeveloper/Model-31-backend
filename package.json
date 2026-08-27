@@ -1,9 +1,11 @@
 {
   "name": "model-31-backend",
   "version": "1.0.0",
-  "main": "src/server.js",
+  "main": "app.js",
   "scripts": {
-    "start": "node src/server.js",
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "migrate": "node src/migrations/migrate.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
