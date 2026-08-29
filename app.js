@@ -4,7 +4,7 @@ const cors = require("cors");
 const pool = require("./src/config/database");
 const { runMigrations } = require("./src/migrations/migrate");
 const { seedDemoData } = require("./src/services/seedService");
-const { login } = require("./src/controllers/authController");
+const authRoutes = require("./src/routes/authRoutes");
 const dealershipRoutes = require("./src/routes/dealershipRoutes");
 const leadRoutes = require("./src/routes/leadRoutes");
 const cityRoutes = require("./src/routes/cityRoutes");
@@ -30,7 +30,7 @@ app.use(
 );
 app.use(express.json());
 
-app.post("/api/auth/login", login);
+app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/dealerships", dealershipRoutes);
 app.use("/api/leads", leadRoutes);

@@ -10,4 +10,12 @@ async function login(req, res, next) {
   }
 }
 
-module.exports = { login };
+async function logout(req, res, next) {
+  try {
+    return success(res, { message: "Logout successful" });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { login, logout };
