@@ -8,6 +8,8 @@ router.use(authMiddleware, requireSuperAdmin);
 
 router.get("/", leadController.list);
 router.post("/", leadController.create);
+router.get("/:id/notes", leadController.listNotes);
+router.post("/:id/notes", leadController.addNote);
 router.get("/:id", leadController.getOne);
 router.put("/:id", leadController.update);
 router.patch("/:id/status", leadController.setStatus);

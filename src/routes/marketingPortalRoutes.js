@@ -47,10 +47,12 @@ router.patch("/follow-ups/:id/resume", ctrl.resumeFollowUp);
 router.get("/follow-ups/:id", ctrl.getFollowUp);
 
 router.get("/content/options", ctrl.contentFormOptions);
+router.get("/salespeople", ctrl.listSalespeople);
 router.get("/content", ctrl.listAiContents);
 router.post("/content/generate", ctrl.generateAiContent);
 router.post("/content/:id/regenerate", ctrl.regenerateAiContent);
 router.post("/content/:id/save-draft", ctrl.saveAiContentDraft);
+router.post("/content/:id/send-to-salesperson", ctrl.sendToSalesperson);
 router.post("/content/:id/submit", ctrl.submitAiContent);
 router.post("/content/:id/approve", ctrl.approveAiContent);
 router.post("/content/:id/reject", ctrl.rejectAiContent);

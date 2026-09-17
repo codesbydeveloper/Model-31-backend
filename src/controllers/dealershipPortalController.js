@@ -1,6 +1,18 @@
 const dealershipPortalService = require("../services/dealershipPortalService");
 const { success } = require("../utils/response");
 
+async function dashboard(req, res, next) {
+  try {
+    const data = await dealershipPortalService.getDashboard(
+      req.dealershipId,
+      req.query
+    );
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function listLeads(req, res, next) {
   try {
     const data = await dealershipPortalService.listLeads(req.dealershipId, req.query);
@@ -195,6 +207,7 @@ async function saveSettings(req, res, next) {
 }
 
 module.exports = {
+  dashboard,
   listLeads,
   getLead,
   setLeadStatus,

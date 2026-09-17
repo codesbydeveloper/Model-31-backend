@@ -9,6 +9,33 @@ const {
   ESCALATION_STATUSES,
 } = require("../utils/constants");
 
+const DEFAULT_SALESPERSON_CAPACITY = 8;
+
+function formatLastActive(value) {
+  if (!value) return "-";
+  const ms = Date.now() - new Date(value).getTime();
+  if (Number.isNaN(ms) || ms < 0) return "Just now";
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function formatResponseClock(totalSeconds) {
+  const safe = Math.max(0, Number(totalSeconds) || 0);
+  const minutes = Math.floor(safe / 60);
+  const seconds = Math.floor(safe % 60);
+  return `${minutes}m ${String(seconds).padStart(2, "0")}s`;
+}
+
+function roundOne(value) {
+  return Math.round(Number(value) * 10) / 10;
+}
+
 async function listQualifiedLeads(query) {
   const dispatchStatus =
     query.status && query.status !== "All" ? String(query.status).toUpperCase() : "";
@@ -45,9 +72,21 @@ async function listQueue(query) {
   });
 }
 
-async function listAvailableSalespeople() {
+async function listAvailableSalespeople(query = {}) {
+  const safePage = Math.max(1, Number(query.page) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number(query.limit) || 8));
+  const offset = (safePage - 1) * safeLimit;
+
+  const [countRows] = await pool.query(
+    `SELECT COUNT(*) AS total FROM users
+     WHERE role = 'Salesperson' AND status = 'Active'`
+  );
+  const total = Number(countRows[0]?.total) || 0;
+  const totalPages = total === 0 ? 0 : Math.ceil(total / safeLimit);
+
   const [rows] = await pool.query(
-    `SELECT u.id, u.name, u.email, u.presence, u.status, d.name AS dealership_name, u.dealership_id,
+    `SELECT u.id, u.name, u.email, u.presence, u.status, u.last_active,
+      d.name AS dealership_name, u.dealership_id,
       (
         SELECT COUNT(*) FROM leads l
         WHERE l.salesperson_id = u.id
@@ -56,19 +95,115 @@ async function listAvailableSalespeople() {
      FROM users u
      LEFT JOIN dealerships d ON d.id = u.dealership_id
      WHERE u.role = 'Salesperson' AND u.status = 'Active'
-     ORDER BY u.name ASC`
+     ORDER BY
+       FIELD(u.presence, 'ONLINE', 'BUSY', 'OFFLINE') ASC,
+       u.name ASC
+     LIMIT ? OFFSET ?`,
+    [safeLimit, offset]
   );
 
-  return {
-    salespeople: rows.map((row) => ({
+  const salespeople = rows.map((row) => {
+    const activeLeads = Number(row.active_leads) || 0;
+    const capacityMax = DEFAULT_SALESPERSON_CAPACITY;
+    return {
       id: row.id,
       name: row.name,
       email: row.email,
       dealershipId: row.dealership_id || null,
       dealership: row.dealership_name || "Unassigned",
-      presence: row.presence || "OFFLINE",
-      activeLeads: Number(row.active_leads) || 0,
-    })),
+      status: String(row.presence || "OFFLINE").toUpperCase(),
+      presence: String(row.presence || "OFFLINE").toUpperCase(),
+      activeLeads,
+      lastActive: formatLastActive(row.last_active),
+      lastActiveAt: row.last_active || null,
+      currentCapacity: `${activeLeads}/${capacityMax}`,
+      capacityUsed: activeLeads,
+      capacityMax,
+    };
+  });
+
+  return {
+    salespeople,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages,
+      showingFrom: total === 0 ? 0 : offset + 1,
+      showingTo: Math.min(offset + salespeople.length, total),
+    },
+  };
+}
+
+async function getDashboard(query = {}) {
+  const [appointmentRows] = await pool.query(
+    `SELECT
+      SUM(CASE WHEN appointment_date = CURDATE() THEN 1 ELSE 0 END) AS today_count,
+      SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed,
+      SUM(CASE WHEN status IN ('NO SHOW', 'NO_SHOW') THEN 1 ELSE 0 END) AS no_show
+     FROM appointments`
+  );
+  const appointments = appointmentRows[0] || {};
+  const todaysAppointments = Number(appointments.today_count) || 0;
+  const completedAppointments = Number(appointments.completed) || 0;
+  const noShows = Number(appointments.no_show) || 0;
+  const conversionBase = completedAppointments + noShows;
+  const appointmentConversion =
+    conversionBase > 0
+      ? roundOne((completedAppointments / conversionBase) * 100)
+      : 0;
+
+  const [leadRows] = await pool.query(
+    `SELECT
+      SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS qualified_today,
+      SUM(
+        CASE
+          WHEN dispatch_status = 'WAITING'
+            OR (dispatch_status = 'QUALIFIED' AND salesperson_id IS NULL)
+          THEN 1 ELSE 0
+        END
+      ) AS waiting,
+      SUM(CASE WHEN dispatch_status = 'ASSIGNED' THEN 1 ELSE 0 END) AS assigned,
+      SUM(CASE WHEN dispatch_status = 'ACCEPTED' THEN 1 ELSE 0 END) AS accepted,
+      SUM(CASE WHEN dispatch_status = 'EXPIRED' THEN 1 ELSE 0 END) AS expired,
+      SUM(
+        CASE
+          WHEN dispatch_status = 'ESCALATED'
+            AND (escalation_status IS NULL OR escalation_status = 'OPEN')
+          THEN 1 ELSE 0
+        END
+      ) AS escalated
+     FROM leads
+     WHERE pipeline = 'DEALERSHIP'`
+  );
+  const leads = leadRows[0] || {};
+
+  const [avgRows] = await pool.query(
+    `SELECT AVG(TIMESTAMPDIFF(SECOND, assigned_at, accepted_at)) AS avg_seconds
+     FROM leads
+     WHERE pipeline = 'DEALERSHIP'
+       AND assigned_at IS NOT NULL
+       AND accepted_at IS NOT NULL`
+  );
+  const avgSeconds = Number(avgRows[0]?.avg_seconds) || 0;
+
+  const salespersonAvailability = await listAvailableSalespeople(query);
+
+  return {
+    stats: {
+      todaysAppointments,
+      completedAppointments,
+      noShows,
+      appointmentConversion,
+      qualifiedToday: Number(leads.qualified_today) || 0,
+      waitingForAssignment: Number(leads.waiting) || 0,
+      assigned: Number(leads.assigned) || 0,
+      accepted: Number(leads.accepted) || 0,
+      expired: Number(leads.expired) || 0,
+      escalated: Number(leads.escalated) || 0,
+      averageResponseTime: formatResponseClock(avgSeconds),
+    },
+    salespersonAvailability,
   };
 }
 
@@ -332,6 +467,7 @@ async function resolveEscalation(leadId) {
 }
 
 module.exports = {
+  getDashboard,
   listQualifiedLeads,
   getLead,
   listQueue,

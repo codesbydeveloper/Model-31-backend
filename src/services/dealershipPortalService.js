@@ -24,6 +24,168 @@ async function assertLeadInDealership(leadId, dealershipId) {
   return lead;
 }
 
+const QUALIFIED_STATUSES = [
+  "QUALIFIED",
+  "CONTACTED",
+  "APPOINTMENT",
+  "ROUTED",
+  "CLOSED",
+];
+const SOURCE_BUCKETS = ["Website", "Facebook", "Instagram", "WhatsApp", "Other"];
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function toDateKey(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    const m = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  }
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function chartLabel(dateKey) {
+  const d = new Date(`${dateKey}T00:00:00`);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function sourceBucket(source) {
+  const value = String(source || "").trim().toLowerCase();
+  if (!value) return "Other";
+  if (value.includes("facebook")) return "Facebook";
+  if (value.includes("instagram")) return "Instagram";
+  if (value.includes("whatsapp")) return "WhatsApp";
+  if (value.includes("web") || value.includes("site")) return "Website";
+  return "Other";
+}
+
+async function getDashboard(dealershipId, query = {}) {
+  const dealership = await getDealershipContext(dealershipId);
+  const trendDays = Math.min(30, Math.max(7, Number(query.days) || 9));
+
+  const [cardRows] = await pool.query(
+    `SELECT
+      SUM(CASE WHEN DATE(created_at) = CURDATE() THEN 1 ELSE 0 END) AS leads_today,
+      SUM(CASE WHEN status IN (${QUALIFIED_STATUSES.map(() => "?").join(", ")}) THEN 1 ELSE 0 END) AS qualified_leads,
+      SUM(CASE WHEN salesperson_id IS NOT NULL THEN 1 ELSE 0 END) AS assigned_leads
+     FROM leads
+     WHERE dealership_id = ?`,
+    [...QUALIFIED_STATUSES, dealershipId]
+  );
+  const cards = cardRows[0] || {};
+
+  const [appointmentRows] = await pool.query(
+    `SELECT COUNT(*) AS total FROM appointments WHERE dealership_id = ?`,
+    [dealershipId]
+  );
+
+  const [soldRows] = await pool.query(
+    `SELECT
+      COUNT(*) AS sold_deals,
+      COALESCE(SUM(deal_amount), 0) AS revenue
+     FROM sold_deals
+     WHERE dealership_id = ?`,
+    [dealershipId]
+  );
+
+  const leadsToday = Number(cards.leads_today) || 0;
+  const qualifiedLeads = Number(cards.qualified_leads) || 0;
+  const assignedLeads = Number(cards.assigned_leads) || 0;
+  const appointments = Number(appointmentRows[0]?.total) || 0;
+  const soldDeals = Number(soldRows[0]?.sold_deals) || 0;
+  const revenue = Number(soldRows[0]?.revenue) || 0;
+
+  const [trendRows] = await pool.query(
+    `SELECT
+      DATE(created_at) AS day,
+      COUNT(*) AS leads,
+      SUM(CASE WHEN status IN (${QUALIFIED_STATUSES.map(() => "?").join(", ")}) THEN 1 ELSE 0 END) AS qualified
+     FROM leads
+     WHERE dealership_id = ?
+       AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+     GROUP BY DATE(created_at)
+     ORDER BY day ASC`,
+    [...QUALIFIED_STATUSES, dealershipId, trendDays - 1]
+  );
+
+  const trendMap = new Map();
+  for (const row of trendRows) {
+    const key = toDateKey(row.day);
+    if (!key) continue;
+    trendMap.set(key, {
+      leads: Number(row.leads) || 0,
+      qualified: Number(row.qualified) || 0,
+    });
+  }
+
+  const leadTrend = [];
+  for (let i = trendDays - 1; i >= 0; i -= 1) {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() - i);
+    const key = toDateKey(d);
+    const point = trendMap.get(key) || { leads: 0, qualified: 0 };
+    leadTrend.push({
+      date: key,
+      label: chartLabel(key),
+      leads: point.leads,
+      qualified: point.qualified,
+    });
+  }
+
+  const [sourceRows] = await pool.query(
+    `SELECT source, COUNT(*) AS total
+     FROM leads
+     WHERE dealership_id = ?
+     GROUP BY source`,
+    [dealershipId]
+  );
+
+  const sourceTotals = {
+    Website: 0,
+    Facebook: 0,
+    Instagram: 0,
+    WhatsApp: 0,
+    Other: 0,
+  };
+  for (const row of sourceRows) {
+    const bucket = sourceBucket(row.source);
+    sourceTotals[bucket] += Number(row.total) || 0;
+  }
+  const leadSources = SOURCE_BUCKETS.map((name) => ({
+    source: name,
+    value: sourceTotals[name],
+  }));
+
+  return {
+    dealership: {
+      id: dealership.id,
+      name: dealership.name,
+    },
+    stats: {
+      leadsToday,
+      qualifiedLeads,
+      assignedLeads,
+      appointments,
+      soldDeals,
+      revenue,
+    },
+    leadTrend,
+    leadSources,
+    salesFunnel: [
+      { stage: "Leads", value: leadsToday },
+      { stage: "Qualified", value: qualifiedLeads },
+      { stage: "Assigned", value: assignedLeads },
+      { stage: "Appointment", value: appointments },
+      { stage: "Sold", value: soldDeals },
+    ],
+  };
+}
+
 async function listLeads(dealershipId, query) {
   await getDealershipContext(dealershipId);
   const [result, stats] = await Promise.all([
@@ -217,6 +379,7 @@ async function saveSettings(dealershipId, body) {
 }
 
 module.exports = {
+  getDashboard,
   listLeads,
   getLead,
   setLeadStatus,

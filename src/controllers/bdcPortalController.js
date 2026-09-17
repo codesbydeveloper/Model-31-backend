@@ -1,6 +1,15 @@
 const bdcPortalService = require("../services/bdcPortalService");
 const { success } = require("../utils/response");
 
+async function dashboard(req, res, next) {
+  try {
+    const data = await bdcPortalService.getDashboard(req.query);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function listQualifiedLeads(req, res, next) {
   try {
     const data = await bdcPortalService.listQualifiedLeads(req.query);
@@ -30,7 +39,7 @@ async function listQueue(req, res, next) {
 
 async function listSalespeople(req, res, next) {
   try {
-    const data = await bdcPortalService.listAvailableSalespeople();
+    const data = await bdcPortalService.listAvailableSalespeople(req.query);
     return success(res, data);
   } catch (err) {
     next(err);
@@ -137,6 +146,7 @@ async function resolveEscalation(req, res, next) {
 }
 
 module.exports = {
+  dashboard,
   listQualifiedLeads,
   getLead,
   listQueue,

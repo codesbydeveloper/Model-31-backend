@@ -2,7 +2,14 @@ const Lead = require("../models/Lead");
 const Dealership = require("../models/Dealership");
 const User = require("../models/User");
 const AppError = require("../utils/AppError");
-const { LEAD_STATUSES, LEAD_TIERS, LEAD_PIPELINES, LEAD_FINANCING } = require("../utils/constants");
+const pool = require("../config/database");
+const { randomUUID } = require("crypto");
+const {
+  LEAD_STATUSES,
+  LEAD_TIERS,
+  LEAD_PIPELINES,
+  LEAD_FINANCING,
+} = require("../utils/constants");
 
 function validatePayload(body, { partial = false } = {}) {
   if (!partial && (!body.customerName || String(body.customerName).trim() === "")) {
@@ -76,9 +83,14 @@ async function updateLead(id, body) {
     if (!user) throw new AppError("Salesperson not found", 404);
   }
   return Lead.update(id, {
-    customerName: body.customerName !== undefined ? String(body.customerName).trim() : current.customerName,
-    customerPhone: body.customerPhone !== undefined ? body.customerPhone : current.customerPhone,
-    customerEmail: body.customerEmail !== undefined ? body.customerEmail : current.customerEmail,
+    customerName:
+      body.customerName !== undefined
+        ? String(body.customerName).trim()
+        : current.customerName,
+    customerPhone:
+      body.customerPhone !== undefined ? body.customerPhone : current.customerPhone,
+    customerEmail:
+      body.customerEmail !== undefined ? body.customerEmail : current.customerEmail,
     vehicle: body.vehicle !== undefined ? body.vehicle : current.vehicle,
     budget: body.budget !== undefined ? body.budget : current.budget,
     timeline: body.timeline !== undefined ? body.timeline : current.timeline,
@@ -87,8 +99,10 @@ async function updateLead(id, body) {
     score: body.score !== undefined ? Number(body.score) : current.score,
     tier: body.tier !== undefined ? body.tier : current.tier,
     status: body.status !== undefined ? body.status : current.status,
-    dealershipId: body.dealershipId !== undefined ? body.dealershipId : current.dealershipId,
-    salespersonId: body.salespersonId !== undefined ? body.salespersonId : current.salespersonId,
+    dealershipId:
+      body.dealershipId !== undefined ? body.dealershipId : current.dealershipId,
+    salespersonId:
+      body.salespersonId !== undefined ? body.salespersonId : current.salespersonId,
     source: body.source !== undefined ? body.source : current.source,
     pipeline: body.pipeline !== undefined ? body.pipeline : current.pipeline,
     notes: body.notes !== undefined ? body.notes : current.notes,
@@ -112,6 +126,60 @@ async function assignSalesperson(id, salespersonId) {
   return Lead.assignSalesperson(id, salespersonId || null);
 }
 
+async function addNote(leadId, noteText, userId) {
+  await getLead(leadId);
+  const text = String(noteText || "").trim();
+  if (!text) throw new AppError("note is required", 400);
+  if (!userId) throw new AppError("Authentication required", 401);
+
+  const id = `note_${randomUUID().slice(0, 8)}`;
+  await pool.query(
+    `INSERT INTO lead_notes (id, lead_id, user_id, note) VALUES (?, ?, ?, ?)`,
+    [id, leadId, userId, text]
+  );
+
+  const [rows] = await pool.query(
+    `SELECT n.*, u.name AS author_name
+     FROM lead_notes n
+     LEFT JOIN users u ON u.id = n.user_id
+     WHERE n.id = ?
+     LIMIT 1`,
+    [id]
+  );
+
+  return {
+    id: rows[0].id,
+    leadId: rows[0].lead_id,
+    note: rows[0].note,
+    authorId: rows[0].user_id,
+    authorName: rows[0].author_name || null,
+    createdAt: rows[0].created_at,
+  };
+}
+
+async function listNotes(leadId) {
+  await getLead(leadId);
+  const [rows] = await pool.query(
+    `SELECT n.*, u.name AS author_name
+     FROM lead_notes n
+     LEFT JOIN users u ON u.id = n.user_id
+     WHERE n.lead_id = ?
+     ORDER BY n.created_at DESC`,
+    [leadId]
+  );
+
+  return {
+    notes: rows.map((row) => ({
+      id: row.id,
+      leadId: row.lead_id,
+      note: row.note,
+      authorId: row.user_id,
+      authorName: row.author_name || null,
+      createdAt: row.created_at,
+    })),
+  };
+}
+
 module.exports = {
   listLeads,
   getLead,
@@ -119,4 +187,6 @@ module.exports = {
   updateLead,
   setLeadStatus,
   assignSalesperson,
+  addNote,
+  listNotes,
 };

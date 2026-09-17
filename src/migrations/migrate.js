@@ -31,9 +31,9 @@ async function runMigrations() {
     const [applied] = await connection.query("SELECT name FROM _migrations");
     const appliedSet = new Set(applied.map((row) => row.name));
 
+    let ran = 0;
     for (const file of files) {
       if (appliedSet.has(file)) {
-        console.log(`Skip: ${file} (already applied)`);
         continue;
       }
 
@@ -42,6 +42,11 @@ async function runMigrations() {
       await connection.query(sql);
       await connection.query("INSERT INTO _migrations (name) VALUES (?)", [file]);
       console.log(`Done: ${file}`);
+      ran += 1;
+    }
+
+    if (ran === 0) {
+      console.log("No new migrations");
     }
   } finally {
     await connection.end();

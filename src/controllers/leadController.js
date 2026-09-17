@@ -55,4 +55,34 @@ async function assign(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, create, update, setStatus, assign };
+async function addNote(req, res, next) {
+  try {
+    const note = await leadService.addNote(
+      req.params.id,
+      req.body.note || req.body.notes,
+      req.user.id
+    );
+    return success(res, { message: "Note added", note }, 201);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listNotes(req, res, next) {
+  try {
+    return success(res, await leadService.listNotes(req.params.id));
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  list,
+  getOne,
+  create,
+  update,
+  setStatus,
+  assign,
+  addNote,
+  listNotes,
+};

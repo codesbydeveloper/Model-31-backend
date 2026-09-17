@@ -9,6 +9,8 @@ const router = express.Router();
 
 router.use(authMiddleware, requireDealershipPortal);
 
+router.get("/dashboard", ctrl.dashboard);
+
 router.get("/leads", ctrl.listLeads);
 router.get("/leads/:id", ctrl.getLead);
 router.patch("/leads/:id/status", ctrl.setLeadStatus);

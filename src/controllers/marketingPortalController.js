@@ -247,6 +247,14 @@ async function contentFormOptions(req, res, next) {
   }
 }
 
+async function listSalespeople(req, res, next) {
+  try {
+    return success(res, await svc.listSalespeople(req.query));
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function listAiContents(req, res, next) {
   try {
     return success(res, await svc.listAiContents(req.query));
@@ -292,6 +300,17 @@ async function saveAiContentDraft(req, res, next) {
     return success(
       res,
       await svc.saveAiContentDraft(req.params.id, req.body, req.user)
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function sendToSalesperson(req, res, next) {
+  try {
+    return success(
+      res,
+      await svc.sendToSalesperson(req.params.id, req.body, req.user)
     );
   } catch (err) {
     next(err);
@@ -580,12 +599,14 @@ module.exports = {
   pauseFollowUp,
   resumeFollowUp,
   contentFormOptions,
+  listSalespeople,
   listAiContents,
   getAiContentDetail,
   generateAiContent,
   regenerateAiContent,
   updateAiContent,
   saveAiContentDraft,
+  sendToSalesperson,
   submitAiContent,
   approveAiContent,
   rejectAiContent,

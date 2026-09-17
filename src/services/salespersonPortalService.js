@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Conversation = require("../models/Conversation");
 const Appointment = require("../models/Appointment");
 const SoldDeal = require("../models/SoldDeal");
+const SalespersonScript = require("../models/SalespersonScript");
 const pool = require("../config/database");
 const { randomUUID } = require("crypto");
 const AppError = require("../utils/AppError");
@@ -48,6 +49,12 @@ async function getDashboard(user) {
     page: 1,
     limit: 5,
   });
+  const pendingScripts = await SalespersonScript.list({
+    salespersonId,
+    status: "PENDING",
+    page: 1,
+    limit: 10,
+  });
 
   return {
     presence: user.presence || "OFFLINE",
@@ -61,7 +68,9 @@ async function getDashboard(user) {
       accepted,
       declined: 0,
       appointments: appointmentStats.confirmed,
+      pendingScripts: pendingScripts.pagination.total,
     },
+    pendingScripts: pendingScripts.scripts,
     commissionSummary: {
       thisMonth: commission.currentMonthCommission,
       pending: commission.pendingCommission,
@@ -127,7 +136,82 @@ async function listMyLeads(salespersonId, query) {
 }
 
 async function getLead(salespersonId, leadId) {
-  return assertOwnLead(leadId, salespersonId);
+  const lead = await assertOwnLead(leadId, salespersonId);
+  const salesScript = await SalespersonScript.findLatestByLead(
+    leadId,
+    salespersonId
+  );
+  return { lead, salesScript };
+}
+
+async function assertOwnScript(scriptId, salespersonId) {
+  const script = await SalespersonScript.findById(scriptId);
+  if (!script || script.salespersonId !== salespersonId) {
+    throw new AppError("Script not found", 404);
+  }
+  return script;
+}
+
+async function listScripts(salespersonId, query = {}) {
+  return SalespersonScript.list({
+    salespersonId,
+    status: query.status || "",
+    leadId: query.leadId || "",
+    page: query.page,
+    limit: query.limit,
+  });
+}
+
+async function getScript(salespersonId, scriptId) {
+  return assertOwnScript(scriptId, salespersonId);
+}
+
+async function approveScript(salespersonId, scriptId) {
+  await assertOwnScript(scriptId, salespersonId);
+  return SalespersonScript.update(scriptId, {
+    status: "APPROVED",
+    approvedAt: new Date(),
+  });
+}
+
+async function updateScript(salespersonId, scriptId, body = {}) {
+  await assertOwnScript(scriptId, salespersonId);
+  const scriptText = body.script != null ? String(body.script) : "";
+  const captionText = body.caption != null ? String(body.caption) : "";
+  if (!scriptText.trim()) {
+    throw new AppError("script is required", 400);
+  }
+  if (!captionText.trim()) {
+    throw new AppError("caption is required", 400);
+  }
+  const patch = {
+    script: scriptText.trim(),
+    caption: captionText.trim(),
+    status: "EDITED",
+  };
+  if (body.cta !== undefined) {
+    patch.cta = body.cta == null ? null : String(body.cta).trim();
+  }
+  return SalespersonScript.update(scriptId, patch);
+}
+
+async function getPublicScript(token) {
+  const script = await SalespersonScript.findByToken(token);
+  if (!script) {
+    throw new AppError("Script not found", 404);
+  }
+  return script;
+}
+
+async function approvePublicScript(token) {
+  const script = await SalespersonScript.findByToken(token);
+  if (!script) {
+    throw new AppError("Script not found", 404);
+  }
+  return SalespersonScript.update(script.id, {
+    status: "APPROVED",
+    approvedAt: new Date(),
+  });
 }
 
 async function setLeadStatus(salespersonId, leadId, status) {
@@ -296,6 +380,12 @@ module.exports = {
   declineLead,
   listMyLeads,
   getLead,
+  listScripts,
+  getScript,
+  approveScript,
+  updateScript,
+  getPublicScript,
+  approvePublicScript,
   setLeadStatus,
   addNote,
   markSold,

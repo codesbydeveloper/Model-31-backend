@@ -1024,6 +1024,7 @@ async function resumeFollowUp(id) {
 }
 
 const CONTENT_TYPES = [
+  "Sales Script",
   "Social Post",
   "Vehicle Promotion",
   "Dealership Promotion",
@@ -1035,6 +1036,14 @@ const CONTENT_TYPES = [
   "Campaign Copy",
 ];
 const CONTENT_PLATFORMS = [
+  "Facebook",
+  "Instagram",
+  "TikTok",
+  "YouTube",
+  "X",
+  "Whatnot",
+];
+const SCRIPT_PLATFORMS = [
   "Facebook",
   "Instagram",
   "TikTok",
@@ -1061,6 +1070,7 @@ const CONTENT_AUDIENCES = [
 ];
 const CONTENT_STATUSES = [
   "DRAFT",
+  "SENT",
   "PENDING APPROVAL",
   "APPROVED",
   "SCHEDULED",
@@ -1068,39 +1078,145 @@ const CONTENT_STATUSES = [
   "REJECTED",
 ];
 
-function mockGenerateContent(input = {}) {
-  const vehicle = String(input.vehicle || "2026 Lexus RX").trim() || "2026 Lexus RX";
-  const offer = String(input.offer || "").trim();
-  const tone = input.tone || "Professional";
-  const audience = input.targetAudience || "Luxury Buyer";
-  const contentType = input.contentType || "Social Post";
+const NO_AUTO_PUBLISH_MESSAGE =
+  "No auto-publish. Sales scripts are sent to the salesperson for approval.";
+
+async function generateContentWithOpenAI(input = {}) {
+  const AppError = require("../utils/AppError");
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new AppError("OPENAI_API_KEY is not set in .env", 500);
+  }
+
+  const contentType = input.contentType || "Sales Script";
   const platform = input.platform || "Instagram";
+  const isSalesScript = contentType === "Sales Script";
 
-  const title = `${vehicle} — Luxury Without Compromise`;
-  const offerLine = offer
-    ? ` Don't miss our ${offer}.`
-    : " Visit our dealership today to explore available options.";
-  const body = `Experience the perfect combination of luxury, comfort and technology for the ${audience}.${offerLine}`;
-  const tag = vehicle.replace(/[^a-zA-Z0-9]/g, "");
-  const hashtags = `#${tag} #LuxurySUV #Model31`;
+  const systemPrompt = isSalesScript
+    ? `You write dealership sales scripts that a salesperson reads to a customer.
+Return ONLY valid JSON with keys: script, caption, cta.
+- script: spoken sales talk, 4 to 8 sentences, natural and specific
+- caption: short ${platform} caption, 1 to 2 sentences
+- cta: one short call to action
+Do not mention AI. Do not use markdown.`
+    : `You write dealership marketing ${contentType} copy for ${platform}.
+Return ONLY valid JSON with keys: title, body, caption, cta, hashtags, scenes.
+- scenes must be an array of strings (empty unless content type is Video Script)
+Do not mention AI. Do not use markdown.`;
 
-  let scenes = [];
-  if (contentType === "Video Script") {
-    scenes = [
-      "Scene 1: Aerial approach to modern dealership building",
-      `Scene 2: Close-up of ${vehicle} exterior and lighting`,
-      "Scene 3: Interior walkthrough highlighting comfort tech",
-      `Scene 4: Friendly ${tone.toLowerCase()} CTA to book a test drive`,
-    ];
+  const userPrompt = [
+    `Dealership: ${input.dealershipName || "the dealership"}`,
+    `Campaign: ${input.campaignName || "n/a"}`,
+    `Platform: ${platform}`,
+    `Content type: ${contentType}`,
+    `Vehicle: ${input.vehicle || "not specified"}`,
+    `Offer: ${input.offer || "none"}`,
+    `Tone: ${input.tone || "Professional"}`,
+    `Language: ${input.language || "English"}`,
+    `Audience: ${input.targetAudience || "buyers"}`,
+    `Brief: ${input.brief || "none"}`,
+    `Preferred CTA: ${input.cta || "none"}`,
+  ].join("\n");
+
+  let response;
+  try {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+        temperature: 0.7,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+  } catch (err) {
+    throw new AppError("Could not reach OpenAI. Check your internet connection.", 502);
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new AppError(
+      data?.error?.message || "OpenAI request failed",
+      502
+    );
+  }
+
+  const raw = data.choices?.[0]?.message?.content || "{}";
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new AppError("AI returned invalid content. Try generate again.", 502);
+  }
+
+  if (isSalesScript) {
+    const script = String(parsed.script || parsed.body || "").trim();
+    const caption = String(parsed.caption || parsed.title || "").trim();
+    const cta = String(parsed.cta || input.cta || "").trim();
+    if (!script || !caption) {
+      throw new AppError("AI did not return a script and caption. Try again.", 502);
+    }
+    return {
+      title: caption,
+      body: script,
+      caption,
+      cta,
+      hashtags: "",
+      scenes: [],
+      platform,
+      contentType,
+    };
   }
 
   return {
-    title,
-    body,
-    hashtags,
-    scenes,
+    title: String(parsed.title || "").trim(),
+    body: String(parsed.body || "").trim(),
+    caption: String(parsed.caption || parsed.title || "").trim(),
+    cta: String(parsed.cta || input.cta || "").trim(),
+    hashtags: String(parsed.hashtags || "").trim(),
+    scenes: Array.isArray(parsed.scenes) ? parsed.scenes : [],
     platform,
     contentType,
+  };
+}
+
+function withScriptFields(content) {
+  if (!content) return content;
+  const isSalesScript = content.contentType === "Sales Script";
+  const script = content.script || content.body || "";
+  const caption = content.caption || content.title || "";
+  const cta = content.cta || "";
+  return {
+    ...content,
+    script,
+    body: script,
+    caption,
+    title: isSalesScript ? caption : content.title,
+    cta,
+    leadId: content.leadId || null,
+    scenes: isSalesScript ? [] : content.scenes,
+  };
+}
+
+function mapContentResponse(detail) {
+  const content = withScriptFields(detail.content);
+  return {
+    ...detail,
+    content,
+    script: content.script,
+    body: content.body,
+    caption: content.caption,
+    title: content.title,
+    cta: content.cta,
+    leadId: content.leadId,
+    status: content.status,
   };
 }
 
@@ -1133,10 +1249,41 @@ async function getContentFormOptions() {
     })),
     contentTypes: CONTENT_TYPES,
     platforms: CONTENT_PLATFORMS,
+    scriptPlatforms: SCRIPT_PLATFORMS,
     tones: CONTENT_TONES,
     languages: CONTENT_LANGUAGES,
     audiences: CONTENT_AUDIENCES,
     statuses: CONTENT_STATUSES,
+  };
+}
+
+async function listSalespeople(query = {}) {
+  const where = ["u.role = 'Salesperson'", "u.status = 'Active'"];
+  const params = [];
+
+  if (query.dealershipId) {
+    where.push("u.dealership_id = ?");
+    params.push(query.dealershipId);
+  }
+
+  const [rows] = await pool.query(
+    `SELECT u.id, u.name, u.email, u.presence, u.dealership_id, d.name AS dealership_name
+     FROM users u
+     LEFT JOIN dealerships d ON d.id = u.dealership_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY u.name ASC`,
+    params
+  );
+
+  return {
+    salespeople: rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      dealershipId: row.dealership_id || null,
+      dealership: row.dealership_name || "Unassigned",
+      presence: String(row.presence || "OFFLINE").toUpperCase(),
+    })),
   };
 }
 
@@ -1149,18 +1296,28 @@ async function getAiContentDetail(id) {
   const AiContent = require("../models/AiContent");
   const AppError = require("../utils/AppError");
   const content = await AiContent.findById(id);
-  if (!content) throw new AppError("AI content not found", 404);
+  if (!content) throw new AppError("Content not found", 404);
+  const mapped = withScriptFields(content);
+  const isSalesScript = mapped.contentType === "Sales Script";
   const activityHistory = await AiContent.listActivities(id);
   return {
     content: {
-      ...content,
-      preview: {
-        platform: content.platform,
-        title: content.title,
-        body: content.body,
-        hashtags: content.hashtags,
-        mediaLabel: "Mock generated image",
-      },
+      ...mapped,
+      preview: isSalesScript
+        ? {
+            platform: mapped.platform,
+            title: mapped.caption,
+            body: mapped.script,
+            caption: mapped.caption,
+            cta: mapped.cta,
+          }
+        : {
+            platform: mapped.platform,
+            title: mapped.title,
+            body: mapped.body,
+            hashtags: mapped.hashtags,
+            mediaLabel: "Mock generated image",
+          },
       activityHistory,
     },
   };
@@ -1170,73 +1327,122 @@ async function generateAiContent(body = {}, user = {}) {
   const AiContent = require("../models/AiContent");
   const AppError = require("../utils/AppError");
   const Dealership = require("../models/Dealership");
+  const Lead = require("../models/Lead");
+  const MarketingCampaign = require("../models/MarketingCampaign");
 
   const dealershipId = body.dealershipId;
-  if (!dealershipId) throw new AppError("Dealership is required", 400);
+  if (!dealershipId) throw new AppError("dealershipId is required", 400);
   const dealership = await Dealership.findById(dealershipId);
   if (!dealership) throw new AppError("Dealership not found", 404);
 
-  const contentType = body.contentType || "Social Post";
+  const contentType = body.contentType || "Sales Script";
   const platform = body.platform || "Instagram";
   const tone = body.tone || "Professional";
   const language = body.language || "English";
   const targetAudience = body.targetAudience || "Luxury Buyer";
+  const isSalesScript = contentType === "Sales Script";
 
   if (!CONTENT_TYPES.includes(contentType)) {
     throw new AppError(`Content type must be one of: ${CONTENT_TYPES.join(", ")}`, 400);
   }
-  if (!CONTENT_PLATFORMS.includes(platform)) {
-    throw new AppError(`Platform must be one of: ${CONTENT_PLATFORMS.join(", ")}`, 400);
+
+  if (isSalesScript) {
+    if (!body.campaignId) throw new AppError("campaignId is required", 400);
   }
-  if (!CONTENT_TONES.includes(tone)) {
-    throw new AppError(`Tone must be one of: ${CONTENT_TONES.join(", ")}`, 400);
-  }
-  if (!CONTENT_LANGUAGES.includes(language)) {
-    throw new AppError(`Language must be one of: ${CONTENT_LANGUAGES.join(", ")}`, 400);
-  }
-  if (!CONTENT_AUDIENCES.includes(targetAudience)) {
+  if (!CONTENT_PLATFORMS.includes(platform) && !SCRIPT_PLATFORMS.includes(platform)) {
     throw new AppError(
-      `Target audience must be one of: ${CONTENT_AUDIENCES.join(", ")}`,
+      `Platform must be one of: ${CONTENT_PLATFORMS.join(", ")}`,
       400
     );
   }
 
-  const generated = mockGenerateContent({
-    vehicle: body.vehicle,
+  if (!isSalesScript) {
+    if (!CONTENT_TONES.includes(tone)) {
+      throw new AppError(`Tone must be one of: ${CONTENT_TONES.join(", ")}`, 400);
+    }
+    if (!CONTENT_LANGUAGES.includes(language)) {
+      throw new AppError(`Language must be one of: ${CONTENT_LANGUAGES.join(", ")}`, 400);
+    }
+    if (!CONTENT_AUDIENCES.includes(targetAudience)) {
+      throw new AppError(
+        `Target audience must be one of: ${CONTENT_AUDIENCES.join(", ")}`,
+        400
+      );
+    }
+  }
+
+  let leadId = body.leadId || null;
+  let vehicle = body.vehicle || "";
+  if (leadId) {
+    const lead = await Lead.findById(leadId);
+    if (!lead) throw new AppError("Lead not found", 404);
+    if (!vehicle) vehicle = lead.vehicle || "";
+  }
+
+  const campaign = body.campaignId
+    ? await MarketingCampaign.findById(body.campaignId)
+    : null;
+  if (body.campaignId && !campaign) {
+    throw new AppError("Campaign not found", 404);
+  }
+  if (campaign && campaign.dealershipId && campaign.dealershipId !== dealershipId) {
+    throw new AppError("Campaign does not belong to this dealership", 400);
+  }
+
+  const campaignName = await resolveCampaignName(
+    body.campaignId,
+    body.campaignName || campaign?.name
+  );
+  const generated = await generateContentWithOpenAI({
+    vehicle,
     offer: body.offer,
     tone,
     targetAudience,
     contentType,
     platform,
+    cta: body.cta,
+    language,
+    brief: body.brief,
+    dealershipName: dealership.name,
+    campaignName,
   });
-  const campaignName = await resolveCampaignName(body.campaignId, body.campaignName);
   const actor = user.name || "MM Marketing Manager";
+  const caption = generated.caption || generated.title;
+  const scriptBody = generated.body;
+  const cta = generated.cta || body.cta || "";
 
   const content = await AiContent.create({
     dealershipId,
-    title: generated.title,
+    leadId,
+    title: caption,
     contentType,
-    body: generated.body,
+    body: scriptBody,
+    caption,
+    cta,
     hashtags: generated.hashtags,
     campaignId: body.campaignId || null,
     campaignName,
     createdBy: actor,
     createdByUserId: user.id || null,
-    vehicle: body.vehicle || "",
+    vehicle,
     offer: body.offer || "",
     tone,
     language,
     targetAudience,
     brief: body.brief || "",
-    scenes: generated.scenes,
+    scenes: isSalesScript ? [] : generated.scenes,
     platform,
     status: "DRAFT",
   });
 
   await AiContent.addActivity(content.id, "Content created", actor);
-  await AiContent.addActivity(content.id, "AI content generated", "AI System");
+  await AiContent.addActivity(
+    content.id,
+    isSalesScript ? "Sales script generated" : "AI content generated",
+    actor
+  );
 
-  return getAiContentDetail(content.id);
+  return mapContentResponse(await getAiContentDetail(content.id));
 }
 
 async function regenerateAiContent(id) {
@@ -1245,15 +1451,26 @@ async function regenerateAiContent(id) {
   const existing = await AiContent.findById(id);
   if (!existing) throw new AppError("AI content not found", 404);
 
-  const generated = mockGenerateContent(existing);
-  await AiContent.update(id, {
+  const generated = await generateContentWithOpenAI(existing);
+  const patch = {
     title: generated.title,
     body: generated.body,
     hashtags: generated.hashtags,
-    scenes: generated.scenes,
-  });
-  await AiContent.addActivity(id, "AI content regenerated", "AI System");
-  return getAiContentDetail(id);
+    scenes: existing.contentType === "Sales Script" ? [] : generated.scenes,
+  };
+  if (existing.contentType === "Sales Script") {
+    patch.caption = generated.caption;
+    patch.cta = generated.cta;
+  }
+  await AiContent.update(id, patch);
+  await AiContent.addActivity(
+    id,
+    existing.contentType === "Sales Script"
+      ? "Sales script regenerated"
+      : "Content regenerated",
+    "System"
+  );
+  return mapContentResponse(await getAiContentDetail(id));
 }
 
 async function updateAiContent(id, body = {}) {
@@ -1303,13 +1520,26 @@ async function saveAiContentDraft(id, body = {}, user = {}) {
   const AiContent = require("../models/AiContent");
   const AppError = require("../utils/AppError");
   const existing = await AiContent.findById(id);
-  if (!existing) throw new AppError("AI content not found", 404);
+  if (!existing) throw new AppError("Content not found", 404);
 
   const patch = { status: "DRAFT" };
-  for (const key of ["title", "body", "hashtags", "scenes", "brief", "offer", "vehicle"]) {
+  for (const key of ["title", "body", "hashtags", "scenes", "brief", "offer", "vehicle", "cta", "caption"]) {
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       patch[key] = body[key];
     }
+  }
+  if (body.script !== undefined) {
+    patch.body = body.script;
+  }
+  if (body.caption !== undefined) {
+    patch.caption = body.caption;
+    patch.title = body.caption;
+  }
+  if (body.cta !== undefined) {
+    patch.cta = body.cta;
+  }
+  if (body.leadId !== undefined) {
+    patch.leadId = body.leadId || null;
   }
   await AiContent.update(id, patch);
   await AiContent.addActivity(
@@ -1317,7 +1547,87 @@ async function saveAiContentDraft(id, body = {}, user = {}) {
     "Saved as draft",
     user.name || "MM Marketing Manager"
   );
-  return getAiContentDetail(id);
+  return mapContentResponse(await getAiContentDetail(id));
+}
+
+async function sendToSalesperson(id, body = {}, user = {}) {
+  const AiContent = require("../models/AiContent");
+  const SalespersonScript = require("../models/SalespersonScript");
+  const Lead = require("../models/Lead");
+  const User = require("../models/User");
+  const AppError = require("../utils/AppError");
+
+  const content = await AiContent.findById(id);
+  if (!content) throw new AppError("Content not found", 404);
+
+  const mapped = withScriptFields(content);
+  const scriptText = String(mapped.script || "").trim();
+  const captionText = String(mapped.caption || "").trim();
+  if (!scriptText) throw new AppError("script is required before sending", 400);
+  if (!captionText) throw new AppError("caption is required before sending", 400);
+
+  let lead = null;
+  const leadId = body.leadId || content.leadId || null;
+  if (leadId) {
+    lead = await Lead.findById(leadId);
+    if (!lead) throw new AppError("Lead not found", 404);
+  }
+
+  const salespersonId =
+    body.salespersonId || lead?.salespersonId || null;
+  if (!salespersonId) {
+    throw new AppError("salespersonId is required", 400);
+  }
+
+  const salesperson = await User.findById(salespersonId);
+  if (!salesperson || salesperson.role !== "Salesperson") {
+    throw new AppError("Salesperson not found", 404);
+  }
+  if (salesperson.status !== "Active") {
+    throw new AppError("Salesperson is not active", 400);
+  }
+
+  const platform = mapped.platform || "Instagram";
+
+  const script = await SalespersonScript.create({
+    leadId: lead ? lead.id : null,
+    salespersonId: salesperson.id,
+    marketingContentId: content.id,
+    customerName: lead?.customerName || salesperson.name,
+    vehicle: mapped.vehicle || lead?.vehicle || "",
+    dealership:
+      lead?.dealership ||
+      content.dealershipName ||
+      salesperson.dealershipName ||
+      null,
+    platform,
+    script: scriptText,
+    caption: captionText,
+    cta: mapped.cta || "",
+    status: "PENDING",
+  });
+
+  await AiContent.update(id, {
+    leadId: lead ? lead.id : content.leadId || null,
+    salespersonScriptId: script.id,
+    status: "SENT",
+  });
+  await AiContent.addActivity(
+    id,
+    "Sent to salesperson",
+    user.name || "MM Marketing Manager",
+    salesperson.name
+  );
+
+  return {
+    message: "Sent to salesperson",
+    salespersonId: salesperson.id,
+    salespersonName: salesperson.name,
+    leadId: lead ? lead.id : null,
+    status: "SENT",
+    script,
+    content: (await getAiContentDetail(id)).content,
+  };
 }
 
 async function submitAiContent(id, user = {}) {
@@ -1470,10 +1780,17 @@ const SCHEDULED_POST_TIMEZONES = [
 async function listScheduledPosts(query = {}) {
   const ScheduledPost = require("../models/ScheduledPost");
   const view = String(query.view || "list").toLowerCase();
-  if (view === "calendar") {
-    return ScheduledPost.listForCalendar(query);
-  }
-  return ScheduledPost.list(query);
+  const data =
+    view === "calendar"
+      ? await ScheduledPost.listForCalendar(query)
+      : await ScheduledPost.list(query);
+  return {
+    ...data,
+    autoPublish: false,
+    postingEnabled: false,
+    autoPublishLocked: true,
+    message: NO_AUTO_PUBLISH_MESSAGE,
+  };
 }
 
 async function getScheduledPost(id) {
@@ -1568,6 +1885,10 @@ async function listSocialAccounts(query = {}) {
   const accounts = await SocialAccount.list(query);
   return {
     accounts: accounts.map(SocialAccount.mapCard),
+    postingEnabled: false,
+    autoPublishing: false,
+    autoPublishLocked: true,
+    message: NO_AUTO_PUBLISH_MESSAGE,
     options: {
       platforms: SOCIAL_PLATFORMS,
       environments: SOCIAL_ENVIRONMENTS,
@@ -1589,8 +1910,10 @@ async function getSocialAccountSettings(id) {
       ownerName: account.ownerName,
       status: account.status,
       model31Source: account.model31Source,
-      postingEnabled: account.postingEnabled,
-      autoPublishing: account.autoPublishing,
+      postingEnabled: false,
+      autoPublishing: false,
+      postingEnabledLocked: true,
+      autoPublishingLocked: true,
       defaultContentType: account.defaultContentType,
       defaultLanguage: account.defaultLanguage,
       defaultTimezone: account.defaultTimezone,
@@ -1602,6 +1925,7 @@ async function getSocialAccountSettings(id) {
       timezones: SOCIAL_TIMEZONES,
       environments: SOCIAL_ENVIRONMENTS,
     },
+    message: NO_AUTO_PUBLISH_MESSAGE,
   };
 }
 
@@ -1647,14 +1971,8 @@ async function updateSocialAccountSettings(id, body = {}) {
       body.model31Source !== undefined
         ? body.model31Source
         : existing.model31Source,
-    postingEnabled:
-      body.postingEnabled !== undefined
-        ? body.postingEnabled
-        : existing.postingEnabled,
-    autoPublishing:
-      body.autoPublishing !== undefined
-        ? body.autoPublishing
-        : existing.autoPublishing,
+    postingEnabled: false,
+    autoPublishing: false,
     defaultContentType:
       body.defaultContentType !== undefined
         ? body.defaultContentType
@@ -2487,12 +2805,14 @@ module.exports = {
   pauseFollowUp,
   resumeFollowUp,
   getContentFormOptions,
+  listSalespeople,
   listAiContents,
   getAiContentDetail,
   generateAiContent,
   regenerateAiContent,
   updateAiContent,
   saveAiContentDraft,
+  sendToSalesperson,
   submitAiContent,
   approveAiContent,
   rejectAiContent,

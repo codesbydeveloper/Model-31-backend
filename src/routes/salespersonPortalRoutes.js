@@ -9,6 +9,11 @@ router.use(authMiddleware, requireSalesperson);
 router.get("/dashboard", ctrl.dashboard);
 router.patch("/presence", ctrl.setPresence);
 
+router.get("/scripts", ctrl.listScripts);
+router.get("/scripts/:id", ctrl.getScript);
+router.patch("/scripts/:id/approve", ctrl.approveScript);
+router.patch("/scripts/:id", ctrl.updateScript);
+
 router.get("/incoming-leads", ctrl.listIncoming);
 router.patch("/incoming-leads/:id/accept", ctrl.acceptLead);
 router.patch("/incoming-leads/:id/decline", ctrl.declineLead);

@@ -20,9 +20,14 @@ function mapRow(row) {
     id: row.id,
     dealershipId: row.dealership_id,
     dealershipName: row.dealership_name || null,
+    leadId: row.lead_id || null,
     title: row.title,
     contentType: row.content_type || null,
     body: row.body || "",
+    script: row.body || "",
+    caption: row.caption || row.title || "",
+    cta: row.cta || "",
+    salespersonScriptId: row.salesperson_script_id || null,
     hashtags: row.hashtags || "",
     campaignId: row.campaign_id || null,
     campaignName: row.campaign_name || null,
@@ -203,17 +208,22 @@ async function create(data) {
   const id = data.id || `mc_${randomUUID().slice(0, 8)}`;
   await pool.query(
     `INSERT INTO ai_content
-      (id, dealership_id, title, content_type, body, hashtags, campaign_id, campaign_name,
+      (id, dealership_id, lead_id, title, content_type, body, caption, cta, salesperson_script_id,
+       hashtags, campaign_id, campaign_name,
        created_by, created_by_user_id, scheduled_at, timezone, reach, impressions, engagement,
        clicks, leads_count, appointments_count, rejection_reason, vehicle, offer, tone, language,
        target_audience, brief, scenes, platform, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       data.dealershipId,
+      data.leadId || null,
       data.title,
       data.contentType || null,
       data.body || null,
+      data.caption || null,
+      data.cta || null,
+      data.salespersonScriptId || null,
       data.hashtags || null,
       data.campaignId || null,
       data.campaignName || null,
@@ -247,9 +257,13 @@ async function update(id, data) {
   const params = [];
   const map = {
     dealershipId: "dealership_id",
+    leadId: "lead_id",
     title: "title",
     contentType: "content_type",
     body: "body",
+    caption: "caption",
+    cta: "cta",
+    salespersonScriptId: "salesperson_script_id",
     hashtags: "hashtags",
     campaignId: "campaign_id",
     campaignName: "campaign_name",

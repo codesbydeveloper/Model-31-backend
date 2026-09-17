@@ -72,11 +72,60 @@ async function listMyLeads(req, res, next) {
 
 async function getLead(req, res, next) {
   try {
-    const lead = await salespersonPortalService.getLead(
+    const data = await salespersonPortalService.getLead(
       req.user.id,
       req.params.id
     );
-    return success(res, { lead });
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listScripts(req, res, next) {
+  try {
+    const data = await salespersonPortalService.listScripts(
+      req.user.id,
+      req.query
+    );
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getScript(req, res, next) {
+  try {
+    const script = await salespersonPortalService.getScript(
+      req.user.id,
+      req.params.id
+    );
+    return success(res, { script });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function approveScript(req, res, next) {
+  try {
+    const script = await salespersonPortalService.approveScript(
+      req.user.id,
+      req.params.id
+    );
+    return success(res, { message: "Script approved", script });
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function updateScript(req, res, next) {
+  try {
+    const script = await salespersonPortalService.updateScript(
+      req.user.id,
+      req.params.id,
+      req.body
+    );
+    return success(res, { message: "Script updated", script });
   } catch (err) {
     next(err);
   }
@@ -244,6 +293,10 @@ module.exports = {
   declineLead,
   listMyLeads,
   getLead,
+  listScripts,
+  getScript,
+  approveScript,
+  updateScript,
   setLeadStatus,
   addNote,
   markSold,
