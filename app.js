@@ -31,7 +31,7 @@ const systemControlsRoutes = require("./src/routes/systemControlsRoutes");
 const platformSettingsRoutes = require("./src/routes/platformSettingsRoutes");
 const publicScriptRoutes = require("./src/routes/publicScriptRoutes");
 const errorHandler = require("./src/middleware/errorHandler");
-const { error } = require("./src/utils/response");
+const { success, error } = require("./src/utils/response");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -43,6 +43,20 @@ app.use(
   })
 );
 app.use(express.json());
+
+app.get("/", (req, res) => {
+  return success(res, {
+    message: "Server is working",
+    status: "ok",
+  });
+});
+
+app.get("/api/health", (req, res) => {
+  return success(res, {
+    message: "Server is working",
+    status: "ok",
+  });
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
