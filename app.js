@@ -64,6 +64,8 @@ async function healthCheck(req, res) {
       ? "Server is working, database is connected"
       : "Server is working, database is not connected",
     status: dbOk ? "ok" : "degraded",
+    database: dbOk ? "connected" : "not connected",
+    databaseName: process.env.DB_NAME || null,
   });
 }
 
