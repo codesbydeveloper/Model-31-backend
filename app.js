@@ -31,7 +31,7 @@ const systemControlsRoutes = require("./src/routes/systemControlsRoutes");
 const platformSettingsRoutes = require("./src/routes/platformSettingsRoutes");
 const publicScriptRoutes = require("./src/routes/publicScriptRoutes");
 const errorHandler = require("./src/middleware/errorHandler");
-const { success, error } = require("./src/utils/response");
+const { error } = require("./src/utils/response");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -44,19 +44,31 @@ app.use(
 );
 app.use(express.json());
 
-app.get("/", (req, res) => {
-  return success(res, {
-    message: "Server is working",
-    status: "ok",
-  });
-});
+async function healthCheck(req, res) {
+  let dbOk = false;
+  try {
+    const connection = await pool.getConnection();
+    try {
+      await connection.ping();
+      dbOk = true;
+    } finally {
+      connection.release();
+    }
+  } catch {
+    dbOk = false;
+  }
 
-app.get("/api/health", (req, res) => {
-  return success(res, {
-    message: "Server is working",
-    status: "ok",
+  return res.status(dbOk ? 200 : 503).json({
+    success: dbOk,
+    message: dbOk
+      ? "Server is working, database is connected"
+      : "Server is working, database is not connected",
+    status: dbOk ? "ok" : "degraded",
   });
-});
+}
+
+app.get("/", healthCheck);
+app.get("/api/health", healthCheck);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
