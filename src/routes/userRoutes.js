@@ -6,6 +6,7 @@ const router = express.Router();
 
 router.use(authMiddleware, requireSuperAdmin);
 
+router.get("/roles", userController.listRoles);
 router.get("/", userController.list);
 router.post("/", userController.create);
 router.get("/:id", userController.getOne);

@@ -73,6 +73,40 @@ function requireMarketingManager(req, res, next) {
   next();
 }
 
+function requireServiceAdvisor(req, res, next) {
+  if (!req.user || req.user.role !== "Service Advisor") {
+    return error(res, "Service Advisor access required", 403);
+  }
+  if (!req.user.dealershipId) {
+    return error(res, "No dealership assigned to this account", 403);
+  }
+  req.dealershipId = req.user.dealershipId;
+  req.advisorId = req.user.id;
+  next();
+}
+
+function requireServiceManager(req, res, next) {
+  if (!req.user || req.user.role !== "Service Manager") {
+    return error(res, "Service Manager access required", 403);
+  }
+  if (!req.user.dealershipId) {
+    return error(res, "No dealership assigned to this account", 403);
+  }
+  req.dealershipId = req.user.dealershipId;
+  next();
+}
+
+function requireInventoryManager(req, res, next) {
+  if (!req.user || req.user.role !== "Inventory Manager") {
+    return error(res, "Inventory Manager access required", 403);
+  }
+  if (!req.user.dealershipId) {
+    return error(res, "No dealership assigned to this account", 403);
+  }
+  req.dealershipId = req.user.dealershipId;
+  next();
+}
+
 module.exports = {
   authMiddleware,
   requireSuperAdmin,
@@ -80,4 +114,7 @@ module.exports = {
   requireBdcManager,
   requireSalesperson,
   requireMarketingManager,
+  requireServiceAdvisor,
+  requireServiceManager,
+  requireInventoryManager,
 };

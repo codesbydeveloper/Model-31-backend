@@ -5,6 +5,9 @@ const ROLES = [
   "BDC Manager",
   "Salesperson",
   "Marketing Manager",
+  "Service Advisor",
+  "Service Manager",
+  "Inventory Manager",
 ];
 
 const STATUSES = ["Active", "Inactive", "Suspended"];

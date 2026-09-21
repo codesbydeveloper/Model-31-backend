@@ -1,10 +1,18 @@
 const userService = require("../services/userService");
 const { success } = require("../utils/response");
 
+async function listRoles(req, res, next) {
+  try {
+    return success(res, userService.getRoleOptions());
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function list(req, res, next) {
   try {
-    const { users, pagination } = await userService.listUsers(req.query);
-    return success(res, { users, pagination });
+    const { users, pagination, roles } = await userService.listUsers(req.query);
+    return success(res, { users, pagination, roles });
   } catch (err) {
     next(err);
   }
@@ -46,4 +54,4 @@ async function remove(req, res, next) {
   }
 }
 
-module.exports = { list, getOne, create, update, remove };
+module.exports = { listRoles, list, getOne, create, update, remove };

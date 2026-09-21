@@ -67,10 +67,21 @@ function validateUserPayload(body, { requirePassword = false } = {}) {
   }
 }
 
+function getRoleOptions() {
+  return {
+    roles: ROLES,
+    statuses: STATUSES,
+  };
+}
+
 async function listUsers(query) {
+  if (query.role && query.role !== "ALL" && !ROLES.includes(query.role)) {
+    throw new AppError(`role must be one of: ${ROLES.join(", ")}`, 400);
+  }
+
   const result = await User.list({
     search: query.search || "",
-    role: query.role || "",
+    role: query.role && query.role !== "ALL" ? query.role : "",
     status: query.status || "",
     page: query.page,
     limit: query.limit,
@@ -78,6 +89,7 @@ async function listUsers(query) {
   return {
     users: result.users.map(formatUser),
     pagination: result.pagination,
+    roles: ROLES,
   };
 }
 
@@ -202,4 +214,5 @@ module.exports = {
   updateUser,
   deleteUser,
   formatUser,
+  getRoleOptions,
 };
