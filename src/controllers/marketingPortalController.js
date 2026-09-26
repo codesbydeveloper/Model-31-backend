@@ -453,6 +453,14 @@ async function updateSocialAccountSettings(req, res, next) {
   }
 }
 
+async function getSocialConnectForm(req, res, next) {
+  try {
+    return success(res, await svc.getSocialConnectForm(req.params.id));
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function connectSocialAccount(req, res, next) {
   try {
     return success(
@@ -620,6 +628,7 @@ module.exports = {
   rescheduleScheduledPost,
   cancelScheduledPost,
   listSocialAccounts,
+  getSocialConnectForm,
   getSocialAccountSettings,
   updateSocialAccountSettings,
   connectSocialAccount,

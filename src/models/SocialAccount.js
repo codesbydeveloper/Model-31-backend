@@ -222,6 +222,7 @@ async function connect(id, data = {}) {
   return update(id, {
     accountName:
       data.accountName !== undefined ? data.accountName : undefined,
+    ownerName: data.ownerName !== undefined ? data.ownerName : undefined,
     environment: data.environment || "Production",
     status: "CONNECTED",
     lastSync: new Date(),

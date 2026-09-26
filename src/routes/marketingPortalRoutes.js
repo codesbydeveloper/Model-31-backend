@@ -75,6 +75,7 @@ router.patch("/scheduled-posts/:id/reschedule", ctrl.rescheduleScheduledPost);
 router.patch("/scheduled-posts/:id/cancel", ctrl.cancelScheduledPost);
 
 router.get("/social-accounts", ctrl.listSocialAccounts);
+router.get("/social-accounts/:id/connect-form", ctrl.getSocialConnectForm);
 router.get("/social-accounts/:id", ctrl.getSocialAccountSettings);
 router.put("/social-accounts/:id/settings", ctrl.updateSocialAccountSettings);
 router.post("/social-accounts/:id/connect", ctrl.connectSocialAccount);
