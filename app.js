@@ -33,6 +33,10 @@ const publicScriptRoutes = require("./src/routes/publicScriptRoutes");
 const serviceManagerRoutes = require("./src/routes/serviceManagerRoutes");
 const serviceAdvisorRoutes = require("./src/routes/serviceAdvisorRoutes");
 const inventoryManagerRoutes = require("./src/routes/inventoryManagerRoutes");
+const model31Routes = require("./src/routes/model31Routes");
+const crmHygieneRoutes = require("./src/routes/crmHygieneRoutes");
+const trustPortalRoutes = require("./src/routes/trustPortalRoutes");
+const { startModel31Jobs } = require("./src/jobs/model31Jobs");
 const errorHandler = require("./src/middleware/errorHandler");
 const { error } = require("./src/utils/response");
 
@@ -106,6 +110,9 @@ app.use("/api/super-admin/negotiation-control", negotiationControlRoutes);
 app.use("/api/super-admin/deal-handoffs", dealHandoffsRoutes);
 app.use("/api/super-admin/system-controls", systemControlsRoutes);
 app.use("/api/super-admin/settings", platformSettingsRoutes);
+app.use("/api/model31", model31Routes);
+app.use("/api/crm", crmHygieneRoutes);
+app.use("/api/trust", trustPortalRoutes);
 
 app.use((req, res) => error(res, "Route not found", 404));
 app.use(errorHandler);
@@ -113,6 +120,11 @@ app.use(errorHandler);
 async function start() {
   try {
     await pool.connectDatabase();
+    try {
+      await startModel31Jobs();
+    } catch (err) {
+      console.error("Model 31 jobs did not start. Run npm run migrate.", err.message);
+    }
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
     });

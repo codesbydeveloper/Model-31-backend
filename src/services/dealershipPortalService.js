@@ -8,6 +8,7 @@ const DealershipSettings = require("../models/DealershipSettings");
 const Dealership = require("../models/Dealership");
 const pool = require("../config/database");
 const AppError = require("../utils/AppError");
+const { assertStatusChangeAllowed } = require("./salespersonGuardService");
 const { LEAD_STATUSES } = require("../utils/constants");
 
 async function getDealershipContext(dealershipId) {
@@ -206,6 +207,7 @@ async function getLead(dealershipId, leadId) {
 
 async function setLeadStatus(dealershipId, leadId, status) {
   await assertLeadInDealership(leadId, dealershipId);
+  await assertStatusChangeAllowed(leadId, status);
   if (!LEAD_STATUSES.includes(status)) {
     throw new AppError(`status must be one of: ${LEAD_STATUSES.join(", ")}`, 400);
   }

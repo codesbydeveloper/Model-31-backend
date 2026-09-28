@@ -2,6 +2,7 @@ const Lead = require("../models/Lead");
 const Dealership = require("../models/Dealership");
 const User = require("../models/User");
 const AppError = require("../utils/AppError");
+const { assertStatusChangeAllowed } = require("./salespersonGuardService");
 const pool = require("../config/database");
 const { randomUUID } = require("crypto");
 const {
@@ -73,6 +74,12 @@ async function createLead(body) {
 
 async function updateLead(id, body) {
   const current = await getLead(id);
+  if (
+    body.status !== undefined &&
+    String(body.status).toUpperCase() !== String(current.status).toUpperCase()
+  ) {
+    await assertStatusChangeAllowed(id, body.status);
+  }
   validatePayload({ ...current, ...body });
   if (body.dealershipId) {
     const dealership = await Dealership.findById(body.dealershipId);
@@ -111,6 +118,7 @@ async function updateLead(id, body) {
 
 async function setLeadStatus(id, status) {
   await getLead(id);
+  await assertStatusChangeAllowed(id, status);
   if (!LEAD_STATUSES.includes(status)) {
     throw new AppError(`status must be one of: ${LEAD_STATUSES.join(", ")}`, 400);
   }

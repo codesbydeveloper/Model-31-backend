@@ -7,6 +7,7 @@ const SalespersonScript = require("../models/SalespersonScript");
 const pool = require("../config/database");
 const { randomUUID } = require("crypto");
 const AppError = require("../utils/AppError");
+const { assertStatusChangeAllowed } = require("./salespersonGuardService");
 const { LEAD_STATUSES } = require("../utils/constants");
 
 async function assertOwnLead(leadId, salespersonId) {
@@ -216,6 +217,7 @@ async function approvePublicScript(token) {
 
 async function setLeadStatus(salespersonId, leadId, status) {
   await assertOwnLead(leadId, salespersonId);
+  await assertStatusChangeAllowed(leadId, status);
   if (!LEAD_STATUSES.includes(status)) {
     throw new AppError(`status must be one of: ${LEAD_STATUSES.join(", ")}`, 400);
   }
@@ -259,6 +261,7 @@ async function markSold(salespersonId, leadId, body = {}) {
 
 async function markNotSold(salespersonId, leadId) {
   await assertOwnLead(leadId, salespersonId);
+  await assertStatusChangeAllowed(leadId, "CLOSED");
   return Lead.updateStatus(leadId, "CLOSED");
 }
 
