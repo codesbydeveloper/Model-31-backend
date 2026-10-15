@@ -428,7 +428,7 @@ async function cancelScheduledPost(req, res, next) {
 
 async function listSocialAccounts(req, res, next) {
   try {
-    return success(res, await svc.listSocialAccounts(req.query));
+    return success(res, await svc.listSocialAccounts(req.query, req.user));
   } catch (err) {
     next(err);
   }

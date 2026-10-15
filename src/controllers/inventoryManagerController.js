@@ -35,7 +35,26 @@ async function getVehicle(req, res, next) {
 
 async function createVehicle(req, res, next) {
   try {
-    return success(res, await svc.createVehicle(req.dealershipId, req.body), 201);
+    return success(res, await svc.createVehicle(req.dealershipId, req.body, req.files), 201);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deleteVehicleImage(req, res, next) {
+  try {
+    return success(
+      res,
+      await svc.deleteVehicleImage(req.dealershipId, req.params.id, req.params.imageId)
+    );
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deleteVehicle(req, res, next) {
+  try {
+    return success(res, await svc.deleteVehicle(req.dealershipId, req.params.id));
   } catch (err) {
     next(err);
   }
@@ -45,7 +64,7 @@ async function updateVehicle(req, res, next) {
   try {
     return success(
       res,
-      await svc.updateVehicle(req.dealershipId, req.params.id, req.body)
+      await svc.updateVehicle(req.dealershipId, req.params.id, req.body, req.files)
     );
   } catch (err) {
     next(err);
@@ -59,4 +78,6 @@ module.exports = {
   getVehicle,
   createVehicle,
   updateVehicle,
+  deleteVehicleImage,
+  deleteVehicle,
 };

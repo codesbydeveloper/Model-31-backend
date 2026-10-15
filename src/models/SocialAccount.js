@@ -218,6 +218,21 @@ async function update(id, data) {
   return findById(id);
 }
 
+async function updateStats(id, stats = {}) {
+  await pool.query(
+    `UPDATE social_accounts
+     SET posts = ?, followers = ?, last_sync = ?
+     WHERE id = ?`,
+    [
+      Number(stats.posts) || 0,
+      Number(stats.followers) || 0,
+      stats.lastSync || new Date(),
+      id,
+    ]
+  );
+  return findById(id);
+}
+
 async function connect(id, data = {}) {
   return update(id, {
     accountName:
@@ -237,6 +252,15 @@ async function disconnect(id) {
   return findById(id);
 }
 
+async function disconnectByPlatform(platform) {
+  await pool.query(
+    `UPDATE social_accounts
+     SET status = 'DISCONNECTED'
+     WHERE platform = ? AND status = 'CONNECTED'`,
+    [platform]
+  );
+}
+
 module.exports = {
   list,
   listByDealership,
@@ -244,7 +268,9 @@ module.exports = {
   create,
   update,
   connect,
+  updateStats,
   disconnect,
+  disconnectByPlatform,
   mapCard,
   toOnOff,
   toBool,

@@ -233,8 +233,15 @@ async function listConversations(dealershipId) {
 
 async function getConversation(dealershipId, leadId) {
   const lead = await assertLeadInDealership(leadId, dealershipId);
-  const messages = await Conversation.listByLead(leadId);
-  return { lead, messages };
+  const { listFacebookMessagesForLead, messagesForConversation } = require("./facebookReplyService");
+  const [localMessages, facebookMessages] = await Promise.all([
+    Conversation.listByLead(leadId),
+    listFacebookMessagesForLead(leadId),
+  ]);
+  return {
+    lead,
+    messages: messagesForConversation(localMessages, facebookMessages),
+  };
 }
 
 async function sendMessage(dealershipId, leadId, body) {
@@ -246,10 +253,14 @@ async function sendMessage(dealershipId, leadId, body) {
   if (!["CUSTOMER", "AI", "STAFF"].includes(senderType)) {
     throw new AppError("senderType must be CUSTOMER, AI, or STAFF", 400);
   }
+  const text = String(body.message).trim();
+  const { sendFacebookReplyToLead } = require("./facebookReplyService");
+  const facebook = await sendFacebookReplyToLead(leadId, text);
+  if (facebook.sent) return facebook.message;
   const message = await Conversation.createMessage({
     leadId,
     senderType,
-    message: String(body.message).trim(),
+    message: text,
   });
   return message;
 }

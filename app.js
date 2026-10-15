@@ -1,4 +1,5 @@
 require("dotenv").config();
+const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const pool = require("./src/config/database");
@@ -15,6 +16,12 @@ const dealershipPortalRoutes = require("./src/routes/dealershipPortalRoutes");
 const bdcPortalRoutes = require("./src/routes/bdcPortalRoutes");
 const salespersonPortalRoutes = require("./src/routes/salespersonPortalRoutes");
 const marketingPortalRoutes = require("./src/routes/marketingPortalRoutes");
+const { verifyWebhook } = require("./src/services/metaPageService");
+const {
+  handleWebhookPayload,
+  replyToRecentComments,
+  subscribePageEvents,
+} = require("./src/services/facebookReplyService");
 const superAdminDashboardRoutes = require("./src/routes/superAdminDashboardRoutes");
 const crmIntegrationsRoutes = require("./src/routes/crmIntegrationsRoutes");
 const customerIdentityRoutes = require("./src/routes/customerIdentityRoutes");
@@ -50,6 +57,7 @@ app.use(
   })
 );
 app.use(express.json());
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 async function healthCheck(req, res) {
   let dbOk = false;
@@ -92,6 +100,19 @@ app.use("/api/dealership", dealershipPortalRoutes);
 app.use("/api/bdc", bdcPortalRoutes);
 app.use("/api/salesperson", salespersonPortalRoutes);
 app.use("/api/scripts/public", publicScriptRoutes);
+app.get("/api/marketing/meta/webhook", (req, res) => {
+  const challenge = verifyWebhook(req.query);
+  if (!challenge) {
+    return res.status(403).send("Verification failed");
+  }
+  return res.status(200).send(challenge);
+});
+app.post("/api/marketing/meta/webhook", (req, res) => {
+  res.sendStatus(200);
+  handleWebhookPayload(req.body).catch((err) => {
+    console.error("Facebook webhook failed:", err.message);
+  });
+});
 app.use("/api/marketing", marketingPortalRoutes);
 app.use("/api/service-manager", serviceManagerRoutes);
 app.use("/api/service-advisor", serviceAdvisorRoutes);
@@ -127,6 +148,14 @@ async function start() {
     }
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
+      subscribePageEvents()
+        .catch((err) => {
+          console.error("Facebook message subscription failed:", err.message);
+        })
+        .then(() => replyToRecentComments())
+        .catch((err) => {
+          console.error("Recent Facebook comments were not checked:", err.message);
+        });
     });
   } catch (err) {
     console.error("Database connection failed. Check DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD.");

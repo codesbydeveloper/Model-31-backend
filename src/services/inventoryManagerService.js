@@ -1,3 +1,5 @@
+const fs = require("fs");
+const path = require("path");
 const MerchandisingVehicle = require("../models/MerchandisingVehicle");
 const Dealership = require("../models/Dealership");
 const AppError = require("../utils/AppError");
@@ -48,6 +50,7 @@ function listRow(vehicle) {
     price: vehicle.price,
     daysInStock: vehicle.daysInStock,
     photos: vehicle.photos,
+    images: vehicle.images || [],
     status: vehicle.status,
     statusLabel: vehicle.statusLabel,
     action: "Open",
@@ -122,7 +125,35 @@ async function getVehicle(dealershipId, id) {
   };
 }
 
-async function createVehicle(dealershipId, body = {}) {
+function collectImageUrls(body = {}, files = []) {
+  const urls = [];
+  let raw = body.images !== undefined ? body.images : body.image;
+  if (typeof raw === "string" && raw.trim().startsWith("[")) {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      raw = [raw];
+    }
+  }
+  const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  for (const item of list) {
+    const value = String(item || "").trim();
+    if (!value) continue;
+    if (!/^https?:\/\//i.test(value)) {
+      throw new AppError("Image links must start with http:// or https://", 400);
+    }
+    urls.push(value);
+  }
+  for (const file of files || []) {
+    if (file?.filename) urls.push(`/uploads/vehicles/${file.filename}`);
+  }
+  if (urls.length > 10) {
+    throw new AppError("You can add up to 10 images", 400);
+  }
+  return urls;
+}
+
+async function createVehicle(dealershipId, body = {}, files = []) {
   await requireDealership(dealershipId);
   const vehicleName = String(body.vehicle || "").trim();
   const make = String(body.make || "").trim();
@@ -130,8 +161,9 @@ async function createVehicle(dealershipId, body = {}) {
   if (!vehicleName && !make && !model) {
     throw new AppError("vehicle or make/model is required", 400);
   }
-  const status = parseStatus(body.status, "NEEDS_PHOTOS");
-  const vehicle = await MerchandisingVehicle.create({
+  const imageUrls = collectImageUrls(body, files);
+  const status = parseStatus(body.status, imageUrls.length ? "PROCESSED" : "NEEDS_PHOTOS");
+  const created = await MerchandisingVehicle.create({
     dealershipId,
     stockNumber: body.stockNumber,
     vin: body.vin,
@@ -140,18 +172,47 @@ async function createVehicle(dealershipId, body = {}) {
     model,
     vehicle: vehicleName,
     price: body.price,
-    photos: body.photos,
+    photos: imageUrls.length || body.photos,
     status,
     daysInStock: body.daysInStock,
     arrivedAt: body.arrivedAt,
   });
+  if (imageUrls.length) await MerchandisingVehicle.addImages(created.id, imageUrls);
+  const vehicle = await MerchandisingVehicle.findById(created.id, dealershipId);
   return { message: "Vehicle created", vehicle };
 }
 
-async function updateVehicle(dealershipId, id, body = {}) {
+function removeStoredImage(url) {
+  if (!url || !String(url).startsWith("/uploads/vehicles/")) return;
+  const filePath = path.join(__dirname, "../../uploads/vehicles", path.basename(url));
+  fs.unlink(filePath, () => {});
+}
+
+async function deleteVehicleImage(dealershipId, vehicleId, imageId) {
+  await assertVehicle(vehicleId, dealershipId);
+  const removed = await MerchandisingVehicle.deleteImage(vehicleId, imageId);
+  if (!removed) throw new AppError("Image not found", 404);
+  removeStoredImage(removed.url);
+  const vehicle = await MerchandisingVehicle.findById(vehicleId, dealershipId);
+  return { message: "Image deleted", vehicle };
+}
+
+async function deleteVehicle(dealershipId, id) {
   await assertVehicle(id, dealershipId);
+  const urls = await MerchandisingVehicle.listImageUrls(id);
+  const deleted = await MerchandisingVehicle.deleteById(id, dealershipId);
+  if (!deleted) throw new AppError("Vehicle not found", 404);
+  urls.forEach(removeStoredImage);
+  return { message: "Vehicle deleted", id };
+}
+
+async function updateVehicle(dealershipId, id, body = {}, files = []) {
+  await assertVehicle(id, dealershipId);
+  const imageUrls = collectImageUrls(body, files);
   if (body.status) body.status = parseStatus(body.status);
-  const vehicle = await MerchandisingVehicle.update(id, body);
+  await MerchandisingVehicle.update(id, body);
+  if (imageUrls.length) await MerchandisingVehicle.addImages(id, imageUrls);
+  const vehicle = await MerchandisingVehicle.findById(id, dealershipId);
   return { message: "Vehicle updated", vehicle };
 }
 
@@ -162,4 +223,6 @@ module.exports = {
   getVehicle,
   createVehicle,
   updateVehicle,
+  deleteVehicleImage,
+  deleteVehicle,
 };

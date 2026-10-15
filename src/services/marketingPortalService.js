@@ -1863,121 +1863,21 @@ const SOCIAL_PLATFORMS = [
 ];
 const SOCIAL_ENVIRONMENTS = ["Production", "Sandbox"];
 
-function field(key, label, type, required, placeholder, help) {
-  return { key, label, type, required: Boolean(required), placeholder: placeholder || "", help: help || "" };
-}
-
 function connectFormForPlatform(platform) {
+  const { getSocialAppCredentials } = require("../config/socialAppCredentials");
   const name = String(platform || "").trim();
-  const metaFields = [
-    field("appId", "Meta App ID", "text", true, "123456789012345", "From developers.facebook.com → your app"),
-    field("appSecret", "Meta App Secret", "password", true, "••••••••", "App settings → Basic → App Secret"),
-    field("accountName", "Page / account name", "text", true, "BMW Miami", "The Facebook Page or Instagram Business name"),
-    field("pageId", "Facebook Page ID", "text", false, "Optional", "Page About → Page ID"),
-  ];
-
-  const forms = {
-    Facebook: {
-      platform: "Facebook",
-      title: "Connect Facebook",
-      clientAsk:
-        "Ask the client for Meta App ID, Meta App Secret, and the Facebook Page name. Instagram/Facebook use the same Meta app.",
-      helpUrl: "https://developers.facebook.com",
-      fields: metaFields,
-    },
-    Instagram: {
-      platform: "Instagram",
-      title: "Connect Instagram",
-      clientAsk:
-        "Ask the client for Meta App ID, Meta App Secret, and the Instagram Business account name. The Instagram account must be Professional/Business and linked to a Facebook Page.",
-      helpUrl: "https://developers.facebook.com",
-      fields: metaFields,
-    },
-    WhatsApp: {
-      platform: "WhatsApp",
-      title: "Connect WhatsApp",
-      clientAsk:
-        "Ask the client for Meta App ID, Meta App Secret, WhatsApp Business Account ID, and Phone Number ID (same Meta app as Facebook).",
-      helpUrl: "https://developers.facebook.com",
-      fields: [
-        field("appId", "Meta App ID", "text", true, "123456789012345"),
-        field("appSecret", "Meta App Secret", "password", true),
-        field("businessAccountId", "WhatsApp Business Account ID", "text", true),
-        field("phoneNumberId", "WhatsApp Phone Number ID", "text", true),
-        field("accountName", "Display name", "text", true, "BMW WhatsApp"),
-      ],
-    },
-    TikTok: {
-      platform: "TikTok",
-      title: "Connect TikTok",
-      clientAsk: "Ask the client for TikTok Client Key and Client Secret from TikTok for Developers.",
-      helpUrl: "https://developers.tiktok.com",
-      fields: [
-        field("clientKey", "TikTok Client Key", "text", true),
-        field("clientSecret", "TikTok Client Secret", "password", true),
-        field("accountName", "Account name", "text", true, "BMW TikTok"),
-      ],
-    },
-    YouTube: {
-      platform: "YouTube",
-      title: "Connect YouTube",
-      clientAsk: "Ask the client for Google Cloud Client ID and Client Secret (YouTube Data API).",
-      helpUrl: "https://console.cloud.google.com",
-      fields: [
-        field("clientId", "Google Client ID", "text", true),
-        field("clientSecret", "Google Client Secret", "password", true),
-        field("accountName", "Channel name", "text", true, "BMW YouTube"),
-      ],
-    },
-    X: {
-      platform: "X",
-      title: "Connect X",
-      clientAsk: "Ask the client for X Client ID and Client Secret from developer.x.com.",
-      helpUrl: "https://developer.x.com",
-      fields: [
-        field("clientId", "X Client ID", "text", true),
-        field("clientSecret", "X Client Secret", "password", true),
-        field("accountName", "Handle / account name", "text", true, "@bmw"),
-      ],
-    },
-    Whatnot: {
-      platform: "Whatnot",
-      title: "Connect Whatnot",
-      clientAsk: "Ask the client for Whatnot Client ID and Client Secret if they have a Whatnot developer app.",
-      helpUrl: "",
-      fields: [
-        field("clientId", "Whatnot Client ID", "text", true),
-        field("clientSecret", "Whatnot Client Secret", "password", true),
-        field("accountName", "Shop name", "text", true),
-      ],
-    },
+  const app = getSocialAppCredentials(name);
+  return {
+    platform: name || "Social",
+    title: `Connect ${name || "account"}`,
+    clientAsk:
+      "Click Connect. The App ID and secret come from the server. The account name and page ID are saved for this dealership when the page is linked.",
+    helpUrl: app.helpUrl,
+    fields: [],
+    usesServerCredentials: true,
+    credentialsConfigured: app.configured,
+    missingEnv: app.missing,
   };
-
-  return (
-    forms[name] || {
-      platform: name || "Social",
-      title: `Connect ${name || "account"}`,
-      clientAsk: "Ask the client for this network's app ID and app secret.",
-      helpUrl: "",
-      fields: [
-        field("clientId", "Client ID", "text", true),
-        field("clientSecret", "Client Secret", "password", true),
-        field("accountName", "Account name", "text", true),
-      ],
-    }
-  );
-}
-
-function collectConnectCredentials(fields, body = {}) {
-  const credentials = {};
-  const missing = [];
-  for (const item of fields) {
-    const value = body[item.key];
-    const text = value === undefined || value === null ? "" : String(value).trim();
-    if (item.required && !text) missing.push(item.label);
-    if (text) credentials[item.key] = text;
-  }
-  return { credentials, missing };
 }
 const SOCIAL_CONTENT_TYPES = [
   "Social Post",
@@ -1997,9 +1897,39 @@ const SOCIAL_TIMEZONES = [
   "America/Los_Angeles",
 ];
 
-async function listSocialAccounts(query = {}) {
+async function ensureSocialPlatformAccounts(dealershipId) {
   const SocialAccount = require("../models/SocialAccount");
-  const accounts = await SocialAccount.list(query);
+  const existing = await SocialAccount.listByDealership(dealershipId);
+  const have = new Set(existing.map((account) => account.platform));
+  for (const platform of SOCIAL_PLATFORMS) {
+    if (have.has(platform)) continue;
+    await SocialAccount.create({
+      dealershipId,
+      platform,
+      accountName: platform,
+      ownerName: "Dealership Account",
+      status: "DISCONNECTED",
+      model31Source: "OFF",
+      postingEnabled: false,
+      autoPublishing: false,
+    });
+  }
+}
+
+async function listSocialAccounts(query = {}, user = null) {
+  const SocialAccount = require("../models/SocialAccount");
+  const Dealership = require("../models/Dealership");
+  const AppError = require("../utils/AppError");
+  let dealershipId = query.dealershipId || user?.dealershipId || null;
+  if (!dealershipId) {
+    const options = await Dealership.listAllOptions();
+    dealershipId = options[0]?.id || null;
+  }
+  if (!dealershipId) {
+    throw new AppError("No dealership found to attach social accounts", 400);
+  }
+  await ensureSocialPlatformAccounts(dealershipId);
+  const accounts = await SocialAccount.list({ ...query, dealershipId });
   return {
     accounts: accounts.map((account) => {
       const card = SocialAccount.mapCard(account);
@@ -2011,6 +1941,9 @@ async function listSocialAccounts(query = {}) {
           clientAsk: form.clientAsk,
           helpUrl: form.helpUrl,
           fields: form.fields,
+          usesServerCredentials: form.usesServerCredentials,
+          credentialsConfigured: form.credentialsConfigured,
+          missingEnv: form.missingEnv,
           submitUrl: `/api/marketing/social-accounts/${account.id}/connect`,
           submitMethod: "POST",
         },
@@ -2157,20 +2090,40 @@ async function connectSocialAccount(id, body = {}) {
   const AppError = require("../utils/AppError");
   const existing = await SocialAccount.findById(id);
   if (!existing) throw new AppError("Social account not found", 404);
+  if (existing.platform === "Facebook" || existing.platform === "Instagram") {
+    const { connectConfiguredPage } = require("./metaPageService");
+    return connectConfiguredPage(existing);
+  }
   if (!existing.canConnect) {
     throw new AppError("Only DISCONNECTED or ERROR accounts can be connected", 400);
   }
 
-  const form = connectFormForPlatform(existing.platform);
-  const { credentials, missing } = collectConnectCredentials(form.fields, body);
-  if (missing.length) {
-    throw new AppError(`Required: ${missing.join(", ")}`, 400);
+  const { getSocialAppCredentials } = require("../config/socialAppCredentials");
+  const app = getSocialAppCredentials(existing.platform);
+  if (!app.configured) {
+    const missing = app.missing.length
+      ? app.missing.join(", ")
+      : existing.platform;
+    throw new AppError(
+      `${existing.platform} is not configured on the server. Add ${missing} to the server environment.`,
+      400
+    );
   }
 
   const accountName = String(
-    credentials.accountName || body.accountName || existing.accountName || ""
+    body.accountName || existing.accountName || existing.platform
   ).trim();
   if (!accountName) throw new AppError("Account name is required", 400);
+
+  const credentials = {
+    source: "env",
+    ...app.publicCreds,
+  };
+  for (const key of ["pageId", "businessAccountId", "phoneNumberId"]) {
+    const value = body[key];
+    const text = value === undefined || value === null ? "" : String(value).trim();
+    if (text) credentials[key] = text;
+  }
 
   const environment = String(body.environment || "Production").trim();
   if (!SOCIAL_ENVIRONMENTS.includes(environment)) {
@@ -2200,7 +2153,8 @@ async function connectSocialAccount(id, body = {}) {
   return {
     message: `${existing.platform} connected`,
     account: SocialAccount.mapCard(account),
-    savedFields: form.fields.map((item) => item.key).filter((key) => key !== "appSecret" && key !== "clientSecret"),
+    savedFields: Object.keys(credentials),
+    usesServerCredentials: true,
   };
 }
 

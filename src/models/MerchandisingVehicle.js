@@ -1,3 +1,4 @@
+const { randomUUID } = require("crypto");
 const pool = require("../config/database");
 
 const STATUS_LABELS = {
@@ -96,8 +97,8 @@ const SELECT_VEHICLE = `
 
 async function findById(id, dealershipId) {
   if (!id) return null;
-  const where = ["(v.id = ? OR v.stock_number = ?)"];
-  const params = [id, id];
+  const where = ["(v.id = ? OR v.stock_number = ? OR v.vin = ?)"];
+  const params = [id, id, id];
   if (dealershipId) {
     where.push("v.dealership_id = ?");
     params.push(dealershipId);
@@ -106,7 +107,7 @@ async function findById(id, dealershipId) {
     `${SELECT_VEHICLE} WHERE ${where.join(" AND ")} LIMIT 1`,
     params
   );
-  return mapVehicle(rows[0]);
+  return withImages(mapVehicle(rows[0]));
 }
 
 async function nextId() {
@@ -178,7 +179,7 @@ async function listByDealership(dealershipId, query = {}) {
   );
 
   return {
-    vehicles: rows.map((row) => mapVehicle(row)),
+    vehicles: await withImagesList(rows.map((row) => mapVehicle(row))),
     pagination: {
       page: safePage,
       limit: safeLimit,
@@ -186,6 +187,102 @@ async function listByDealership(dealershipId, query = {}) {
       totalPages,
     },
   };
+}
+
+async function listAll(query = {}) {
+  const where = [];
+  const params = [];
+
+  if (query.status) {
+    where.push("v.status = ?");
+    params.push(query.status);
+  }
+  if (query.dealership && query.dealership !== "All dealerships") {
+    where.push("d.name = ?");
+    params.push(query.dealership);
+  }
+  if (query.make && query.make !== "All makes") {
+    where.push("v.make = ?");
+    params.push(query.make);
+  }
+  if (query.search) {
+    where.push(
+      "(v.id LIKE ? OR v.stock_number LIKE ? OR v.vehicle LIKE ? OR v.vin LIKE ? OR v.make LIKE ? OR v.model LIKE ? OR d.name LIKE ?)"
+    );
+    const like = `%${query.search}%`;
+    params.push(like, like, like, like, like, like, like);
+  }
+  if (query.minPrice !== undefined && query.minPrice !== null && query.minPrice !== "") {
+    where.push("v.price >= ?");
+    params.push(Number(query.minPrice));
+  }
+  if (query.maxPrice !== undefined && query.maxPrice !== null && query.maxPrice !== "") {
+    where.push("v.price <= ?");
+    params.push(Number(query.maxPrice));
+  }
+  if (query.priceAbove !== undefined && query.priceAbove !== null && query.priceAbove !== "") {
+    where.push("v.price > ?");
+    params.push(Number(query.priceAbove));
+  }
+
+  const whereSql = where.length ? where.join(" AND ") : "1 = 1";
+  const fromSql = `FROM merchandising_vehicles v LEFT JOIN dealerships d ON d.id = v.dealership_id`;
+
+  const [countRows] = await pool.query(
+    `SELECT COUNT(*) AS total ${fromSql} WHERE ${whereSql}`,
+    params
+  );
+  const total = Number(countRows[0]?.total) || 0;
+  const safePage = Math.max(1, Number(query.page) || 1);
+  const safeLimit = Math.min(100, Math.max(1, Number(query.limit) || 8));
+  const offset = (safePage - 1) * safeLimit;
+  const totalPages = total === 0 ? 0 : Math.ceil(total / safeLimit);
+
+  const [rows] = await pool.query(
+    `${SELECT_VEHICLE} WHERE ${whereSql}
+     ORDER BY v.updated_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, safeLimit, offset]
+  );
+
+  return {
+    vehicles: await withImagesList(rows.map((row) => mapVehicle(row))),
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages,
+    },
+  };
+}
+
+async function overviewCounts() {
+  const [rows] = await pool.query(
+    `SELECT
+      COUNT(*) AS total,
+      SUM(CASE WHEN status = 'LIVE' THEN 1 ELSE 0 END) AS live,
+      SUM(CASE WHEN status = 'PROCESSED' THEN 1 ELSE 0 END) AS processed,
+      SUM(CASE WHEN status = 'NEEDS_PHOTOS' THEN 1 ELSE 0 END) AS needs_photos,
+      SUM(CASE WHEN DATEDIFF(CURDATE(), arrived_at) >= 90 THEN 1 ELSE 0 END) AS aged
+     FROM merchandising_vehicles`
+  );
+  const row = rows[0] || {};
+  return {
+    total: Number(row.total) || 0,
+    live: Number(row.live) || 0,
+    processed: Number(row.processed) || 0,
+    needsPhotos: Number(row.needs_photos) || 0,
+    aged: Number(row.aged) || 0,
+  };
+}
+
+async function distinctMakes() {
+  const [rows] = await pool.query(
+    `SELECT DISTINCT make FROM merchandising_vehicles
+     WHERE make IS NOT NULL AND make <> ''
+     ORDER BY make ASC`
+  );
+  return rows.map((row) => row.make);
 }
 
 async function create(data) {
@@ -236,7 +333,8 @@ async function update(id, data) {
       price = ?,
       photos_count = ?,
       status = ?,
-      arrived_at = ?
+      arrived_at = ?,
+      dealership_id = ?
      WHERE id = ?`,
     [
       data.stockNumber !== undefined ? data.stockNumber : existing.stockNumber,
@@ -253,10 +351,14 @@ async function update(id, data) {
           : existing.photos,
       data.status !== undefined ? data.status : existing.status,
       arrivedAt,
+      data.dealershipId !== undefined ? data.dealershipId : existing.dealershipId,
       existing.id,
     ]
   );
-  return findById(existing.id, existing.dealershipId);
+  return findById(
+    existing.id,
+    data.dealershipId !== undefined ? data.dealershipId : existing.dealershipId,
+  );
 }
 
 async function getDashboardCounts(dealershipId) {
@@ -279,13 +381,129 @@ async function getDashboardCounts(dealershipId) {
   };
 }
 
+async function imagesByVehicleIds(ids) {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!unique.length) return new Map();
+  const [rows] = await pool.query(
+    `SELECT id, vehicle_id, image_url, sort_order
+     FROM merchandising_vehicle_images
+     WHERE vehicle_id IN (${unique.map(() => "?").join(", ")})
+     ORDER BY sort_order ASC, created_at ASC`,
+    unique
+  );
+  const grouped = new Map();
+  for (const row of rows) {
+    const list = grouped.get(row.vehicle_id) || [];
+    list.push({
+      id: row.id,
+      url: row.image_url,
+      sortOrder: Number(row.sort_order) || 0,
+    });
+    grouped.set(row.vehicle_id, list);
+  }
+  return grouped;
+}
+
+function applyImages(vehicle, images) {
+  if (!vehicle) return null;
+  const list = images || [];
+  return {
+    ...vehicle,
+    images: list,
+    photos: list.length || vehicle.photos,
+  };
+}
+
+async function withImages(vehicle) {
+  if (!vehicle) return null;
+  const grouped = await imagesByVehicleIds([vehicle.id]);
+  return applyImages(vehicle, grouped.get(vehicle.id) || []);
+}
+
+async function withImagesList(vehicles) {
+  const grouped = await imagesByVehicleIds(vehicles.map((vehicle) => vehicle.id));
+  return vehicles.map((vehicle) => applyImages(vehicle, grouped.get(vehicle.id) || []));
+}
+
+async function addImages(vehicleId, urls) {
+  const clean = urls.map((url) => String(url || "").trim()).filter(Boolean);
+  if (!clean.length) return [];
+  const [countRows] = await pool.query(
+    `SELECT COUNT(*) AS total FROM merchandising_vehicle_images WHERE vehicle_id = ?`,
+    [vehicleId]
+  );
+  let order = Number(countRows[0]?.total) || 0;
+  for (const url of clean) {
+    order += 1;
+    const id = `img_${randomUUID().slice(0, 8)}`;
+    await pool.query(
+      `INSERT INTO merchandising_vehicle_images (id, vehicle_id, image_url, sort_order)
+       VALUES (?, ?, ?, ?)`,
+      [id, vehicleId, url.slice(0, 500), order]
+    );
+  }
+  await pool.query(
+    `UPDATE merchandising_vehicles SET photos_count = ? WHERE id = ?`,
+    [order, vehicleId]
+  );
+  return clean;
+}
+
+async function deleteImage(vehicleId, imageId) {
+  const [rows] = await pool.query(
+    `SELECT id, image_url
+     FROM merchandising_vehicle_images
+     WHERE id = ? AND vehicle_id = ?
+     LIMIT 1`,
+    [imageId, vehicleId]
+  );
+  const image = rows[0];
+  if (!image) return null;
+  await pool.query(
+    `DELETE FROM merchandising_vehicle_images WHERE id = ? AND vehicle_id = ?`,
+    [imageId, vehicleId]
+  );
+  const [countRows] = await pool.query(
+    `SELECT COUNT(*) AS total FROM merchandising_vehicle_images WHERE vehicle_id = ?`,
+    [vehicleId]
+  );
+  await pool.query(
+    `UPDATE merchandising_vehicles SET photos_count = ? WHERE id = ?`,
+    [Number(countRows[0]?.total) || 0, vehicleId]
+  );
+  return { id: image.id, url: image.image_url };
+}
+
+async function listImageUrls(vehicleId) {
+  const [rows] = await pool.query(
+    `SELECT image_url FROM merchandising_vehicle_images WHERE vehicle_id = ?`,
+    [vehicleId]
+  );
+  return rows.map((row) => row.image_url);
+}
+
+async function deleteById(id, dealershipId) {
+  const [result] = await pool.query(
+    `DELETE FROM merchandising_vehicles WHERE id = ? AND dealership_id = ?`,
+    [id, dealershipId]
+  );
+  return result.affectedRows > 0;
+}
+
 module.exports = {
   STATUS_LABELS,
   normalizeStatus,
   findById,
   listByDealership,
+  listAll,
+  overviewCounts,
+  distinctMakes,
   create,
   update,
+  addImages,
+  deleteImage,
+  listImageUrls,
+  deleteById,
   getDashboardCounts,
   mapVehicle,
 };

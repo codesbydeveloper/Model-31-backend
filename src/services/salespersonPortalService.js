@@ -290,8 +290,15 @@ async function listConversations(salespersonId) {
 
 async function getConversation(salespersonId, leadId) {
   const lead = await assertOwnLead(leadId, salespersonId);
-  const messages = await Conversation.listByLead(leadId);
-  return { lead, messages };
+  const { listFacebookMessagesForLead, messagesForConversation } = require("./facebookReplyService");
+  const [localMessages, facebookMessages] = await Promise.all([
+    Conversation.listByLead(leadId),
+    listFacebookMessagesForLead(leadId),
+  ]);
+  return {
+    lead,
+    messages: messagesForConversation(localMessages, facebookMessages),
+  };
 }
 
 async function sendMessage(salespersonId, leadId, body) {
@@ -299,10 +306,14 @@ async function sendMessage(salespersonId, leadId, body) {
   if (!body.message || String(body.message).trim() === "") {
     throw new AppError("message is required", 400);
   }
+  const text = String(body.message).trim();
+  const { sendFacebookReplyToLead } = require("./facebookReplyService");
+  const facebook = await sendFacebookReplyToLead(leadId, text);
+  if (facebook.sent) return facebook.message;
   return Conversation.createMessage({
     leadId,
     senderType: body.senderType || "STAFF",
-    message: String(body.message).trim(),
+    message: text,
   });
 }
 
