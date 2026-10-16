@@ -174,8 +174,8 @@ async function listByDealership(dealershipId, query = {}) {
   const [rows] = await pool.query(
     `${SELECT_VEHICLE} WHERE ${where.join(" AND ")}
      ORDER BY v.updated_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, safeLimit, offset]
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
   );
 
   return {
@@ -241,8 +241,8 @@ async function listAll(query = {}) {
   const [rows] = await pool.query(
     `${SELECT_VEHICLE} WHERE ${whereSql}
      ORDER BY v.updated_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, safeLimit, offset]
+     LIMIT ${safeLimit} OFFSET ${offset}`,
+    params
   );
 
   return {
