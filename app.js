@@ -44,6 +44,7 @@ const model31Routes = require("./src/routes/model31Routes");
 const crmHygieneRoutes = require("./src/routes/crmHygieneRoutes");
 const trustPortalRoutes = require("./src/routes/trustPortalRoutes");
 const { startModel31Jobs } = require("./src/jobs/model31Jobs");
+const { startYouTubeJob } = require("./src/jobs/youtubeJob");
 const errorHandler = require("./src/middleware/errorHandler");
 const { error } = require("./src/utils/response");
 
@@ -145,6 +146,11 @@ async function start() {
       await startModel31Jobs();
     } catch (err) {
       console.error("Model 31 jobs did not start. Run npm run migrate.", err.message);
+    }
+    try {
+      startYouTubeJob();
+    } catch (err) {
+      console.error("YouTube comment check did not start:", err.message);
     }
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
