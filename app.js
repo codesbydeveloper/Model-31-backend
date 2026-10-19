@@ -110,7 +110,7 @@ app.get("/api/marketing/meta/webhook", (req, res) => {
 app.post("/api/marketing/meta/webhook", (req, res) => {
   res.sendStatus(200);
   handleWebhookPayload(req.body).catch((err) => {
-    console.error("Facebook webhook failed:", err.message);
+    console.error("Meta webhook failed:", err.message);
   });
 });
 app.use("/api/marketing", marketingPortalRoutes);

@@ -41,6 +41,10 @@ function pageToken() {
   return String(process.env.META_PAGE_ACCESS_TOKEN || "").trim();
 }
 
+function instagramAccountId() {
+  return String(process.env.INSTAGRAM_ACCOUNT_ID || "").trim();
+}
+
 async function graphPost(path, params) {
   const url = new URL(`https://graph.facebook.com/${graphVersion()}/${path}`);
   const response = await fetch(url, {
@@ -344,19 +348,19 @@ function fallbackReply(phone) {
   return "I can help with the vehicles we have in stock. Which vehicle are you looking for?";
 }
 
-async function createDetectLead(thread) {
+async function createDetectLead(thread, source = "Facebook") {
   const dealershipId = await dealershipIdForPage();
   const lead = await Lead.create({
-    customerName: thread.sender_name || "Facebook customer",
+    customerName: thread.sender_name || `${source} customer`,
     customerPhone: thread.phone,
     vehicle: thread.vehicle,
-    source: "Facebook",
+    source,
     pipeline: "MODEL 31",
     status: "NEW",
     score: 70,
     tier: "Tier B",
     dealershipId,
-    notes: "DETECT. Mobile number and vehicle captured from Facebook. A person should take over.",
+    notes: `DETECT. Mobile number and vehicle captured from ${source}. A person should take over.`,
   });
   return lead;
 }
@@ -451,7 +455,155 @@ async function handleComment({ commentId, message, fromId, fromName }) {
   }
 }
 
+async function graphPostJson(path, payload) {
+  const url = new URL(`https://graph.facebook.com/${graphVersion()}/${path}`);
+  url.searchParams.set("access_token", pageToken());
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.error) {
+    throw new Error(body.error?.message || "Instagram did not accept the reply");
+  }
+  return body;
+}
+
+async function instagramReplyText(text, phone = "", vehicle = "") {
+  const inventory = await loadInventoryLines(await dealershipIdForPage());
+  return (
+    (await aiFacebookReply({ text, phone, vehicle, inventory, chat: "" })) ||
+    fallbackReply(phone)
+  );
+}
+
+async function sendInstagramMessage(userId, text) {
+  if (!pageId() || !pageToken()) {
+    console.error("Instagram DM error: Facebook Page is not configured");
+    return;
+  }
+  await graphPostJson(`${pageId()}/messages`, {
+    recipient: { id: userId },
+    message: { text },
+  });
+  console.log("Instagram DM reply sent");
+}
+
+async function replyInstagramComment(commentId, text) {
+  if (!pageToken()) {
+    console.error("Instagram comment error: Facebook Page is not configured");
+    return;
+  }
+  await graphPostJson(`${commentId}/replies`, { message: text });
+  console.log("Instagram comment reply sent");
+}
+
+async function handleInstagramDirectMessage({ senderId, senderName, text }) {
+  console.log("Instagram DM:", senderId, text);
+  try {
+    const key = `ig:${senderId}`;
+    let thread = await findThread(key);
+    if (!thread) {
+      thread = await insertThread({
+        channel: "instagram",
+        externalKey: key,
+        senderId,
+        senderName: senderName || null,
+        lastMessage: text,
+      });
+      if (!thread) return;
+    }
+
+    const phone = thread.phone || extractPhone(text);
+    const vehicle = thread.vehicle || extractVehicle(text, phone);
+    if (phone && vehicle && !thread.lead_id) {
+      const saved = await updateThread(key, {
+        lastMessage: text,
+        phone,
+        vehicle,
+        senderName: senderName || thread.sender_name,
+        status: "HANDED_OFF",
+      });
+      const lead = await createDetectLead(saved, "Instagram");
+      await updateThread(key, { leadId: lead.id, status: "HANDED_OFF" });
+    } else {
+      await updateThread(key, {
+        lastMessage: text,
+        phone: phone || null,
+        vehicle: vehicle || null,
+        senderName: senderName || thread.sender_name,
+      });
+    }
+
+    const reply = await instagramReplyText(text, phone, vehicle);
+    await sendInstagramMessage(senderId, reply);
+  } catch (err) {
+    console.error("Instagram DM error:", err.message);
+  }
+}
+
+async function handleInstagramComment({ commentId, text, username }) {
+  console.log("Instagram comment:", username || "", text);
+  try {
+    const reply = await instagramReplyText(text);
+    await replyInstagramComment(commentId, reply);
+  } catch (err) {
+    console.error("Instagram comment error:", err.message);
+  }
+}
+
+function handleInstagramPayload(body = {}) {
+  const igId = instagramAccountId();
+  const tasks = [];
+  for (const entry of body.entry || []) {
+    for (const event of entry.messaging || []) {
+      const text = event.message?.text;
+      const isEcho = event.message?.is_echo;
+      const senderId = event.sender?.id;
+      if (text && !isEcho && senderId && senderId !== igId) {
+        tasks.push(
+          handleInstagramDirectMessage({
+            senderId,
+            senderName: event.sender?.name || null,
+            text,
+          })
+        );
+      }
+    }
+    for (const change of entry.changes || []) {
+      if (change.field !== "messages") continue;
+      const value = change.value || {};
+      const text = value.message?.text;
+      const senderId = value.sender?.id;
+      if (text && senderId) {
+        tasks.push(
+          (async () => {
+            console.log("🧪 Instagram TEST DM:", senderId, text);
+            const reply = await instagramReplyText(text);
+            console.log("🤖 AI reply would be:", reply);
+          })()
+        );
+      }
+    }
+    for (const change of entry.changes || []) {
+      const value = change.value || {};
+      if (change.field === "comments" && value.text && value.id && value.from?.id !== igId) {
+        tasks.push(
+          handleInstagramComment({
+            commentId: value.id,
+            text: value.text,
+            username: value.from?.username,
+          })
+        );
+      }
+    }
+  }
+  return Promise.all(tasks);
+}
+
 function handleWebhookPayload(body = {}) {
+  if (body.object === "instagram") return handleInstagramPayload(body);
   if (body.object !== "page" || !Array.isArray(body.entry)) return;
   const tasks = [];
   for (const entry of body.entry) {

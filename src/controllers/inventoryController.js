@@ -5,12 +5,7 @@ async function list(req, res, next) {
   try {
     return success(res, await svc.listVehicles(req.query));
   } catch (err) {
-    console.error("Super admin inventory list failed:", err);
-    if (err.statusCode) return next(err);
-    return res.status(500).json({
-      success: false,
-      message: err.message || "Something went wrong",
-    });
+    next(err);
   }
 }
 
