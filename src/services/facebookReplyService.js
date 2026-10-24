@@ -602,7 +602,132 @@ function handleInstagramPayload(body = {}) {
   return Promise.all(tasks);
 }
 
+async function sendWhatsAppMessage(to, text) {
+  const phoneNumberId = String(process.env.WHATSAPP_PHONE_NUMBER_ID || "").trim();
+  const token = String(process.env.WHATSAPP_TOKEN || "").trim();
+  if (!phoneNumberId || !token || !text) {
+    console.error("WhatsApp error: WhatsApp is not configured");
+    return;
+  }
+  const response = await fetch(
+    `https://graph.facebook.com/${graphVersion()}/${phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to,
+        type: "text",
+        text: { body: text },
+      }),
+    }
+  );
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || body.error) {
+    console.error("WhatsApp error:", body.error?.message || body.error || response.status);
+    return;
+  }
+  console.log("WhatsApp reply sent");
+}
+
+async function handleWhatsAppMessage({ messageId, from, text, name }) {
+  console.log("WhatsApp:", name, from, text);
+  try {
+    if (messageId) {
+      const marker = await insertThread({
+        channel: "whatsapp",
+        externalKey: `wamsg:${messageId}`,
+        senderId: from,
+        senderName: name || null,
+        lastMessage: text,
+      });
+      if (!marker) return;
+    }
+
+    const key = `wa:${from}`;
+    let thread = await findThread(key);
+    if (!thread) {
+      thread = await insertThread({
+        channel: "whatsapp",
+        externalKey: key,
+        senderId: from,
+        senderName: name || null,
+        lastMessage: text,
+      });
+      if (!thread) thread = await findThread(key);
+      if (!thread) return;
+    }
+
+    const previous = thread.last_message || "";
+    const phone = from;
+    const vehicle = thread.vehicle || extractVehicle(text, "");
+    if (vehicle && !thread.lead_id) {
+      const saved = await updateThread(key, {
+        lastMessage: text,
+        phone,
+        vehicle,
+        senderName: name || thread.sender_name,
+        status: "HANDED_OFF",
+      });
+      const lead = await createDetectLead(saved, "WhatsApp");
+      await updateThread(key, { leadId: lead.id, status: "HANDED_OFF" });
+    } else {
+      await updateThread(key, {
+        lastMessage: text,
+        phone,
+        vehicle: vehicle || null,
+        senderName: name || thread.sender_name,
+      });
+    }
+
+    const inventory = await loadInventoryLines(await dealershipIdForPage());
+    const reply =
+      (await aiFacebookReply({
+        text,
+        phone,
+        vehicle: vehicle || "",
+        inventory,
+        chat: previous && previous !== text ? previous : "",
+      })) || fallbackReply(phone);
+    await sendWhatsAppMessage(from, reply);
+    await updateThread(key, {
+      lastMessage: [previous, `Customer: ${text}`, `Model 31: ${reply}`].filter(Boolean).join("\n").slice(-4000),
+      phone,
+      vehicle: vehicle || null,
+      senderName: name || thread.sender_name,
+    });
+  } catch (err) {
+    console.error("WhatsApp error:", err.message);
+  }
+}
+
+function handleWhatsAppPayload(body = {}) {
+  const tasks = [];
+  for (const entry of body.entry || []) {
+    for (const change of entry.changes || []) {
+      const value = change.value || {};
+      const name = value.contacts?.[0]?.profile?.name || "";
+      for (const msg of value.messages || []) {
+        if (msg.type !== "text" || !msg.from || !msg.text?.body) continue;
+        tasks.push(
+          handleWhatsAppMessage({
+            messageId: msg.id,
+            from: msg.from,
+            text: msg.text.body,
+            name,
+          })
+        );
+      }
+    }
+  }
+  return Promise.all(tasks);
+}
+
 function handleWebhookPayload(body = {}) {
+  if (body.object === "whatsapp_business_account") return handleWhatsAppPayload(body);
   if (body.object === "instagram") return handleInstagramPayload(body);
   if (body.object !== "page" || !Array.isArray(body.entry)) return;
   const tasks = [];

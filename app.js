@@ -45,6 +45,7 @@ const crmHygieneRoutes = require("./src/routes/crmHygieneRoutes");
 const trustPortalRoutes = require("./src/routes/trustPortalRoutes");
 const { startModel31Jobs } = require("./src/jobs/model31Jobs");
 const { startYouTubeJob } = require("./src/jobs/youtubeJob");
+const { startXJob } = require("./src/jobs/xJob");
 const errorHandler = require("./src/middleware/errorHandler");
 const { error } = require("./src/utils/response");
 
@@ -151,6 +152,11 @@ async function start() {
       startYouTubeJob();
     } catch (err) {
       console.error("YouTube comment check did not start:", err.message);
+    }
+    try {
+      startXJob();
+    } catch (err) {
+      console.error("X check did not start:", err.message);
     }
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
