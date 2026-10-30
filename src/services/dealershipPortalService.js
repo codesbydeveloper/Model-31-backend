@@ -300,7 +300,11 @@ async function listSalespeople(dealershipId, query) {
 async function listSocialAccounts(dealershipId) {
   await getDealershipContext(dealershipId);
   const accounts = await SocialAccount.listByDealership(dealershipId);
-  return { accounts };
+  return {
+    accounts: accounts.filter(
+      (account) => String(account.platform || "").toLowerCase() !== "whatnot"
+    ),
+  };
 }
 
 async function updateSocialAccount(dealershipId, id, body) {

@@ -1,6 +1,6 @@
 const { checkX } = require("../services/xService");
 
-const TEN_MINUTES_MS = 10 * 60 * 1000;
+const TWO_MINUTES_MS = 2 * 60 * 1000;
 let started = false;
 
 function xConfigured() {
@@ -26,7 +26,7 @@ function startXJob() {
   setInterval(() => {
     console.log("Checking X mentions and DMs...");
     checkX();
-  }, TEN_MINUTES_MS);
+  }, TWO_MINUTES_MS);
 }
 
 module.exports = { startXJob };

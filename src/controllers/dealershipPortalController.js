@@ -1,5 +1,6 @@
 const dealershipPortalService = require("../services/dealershipPortalService");
-const { success } = require("../utils/response");
+const smsAccountService = require("../services/smsAccountService");
+const { success, error } = require("../utils/response");
 
 async function dashboard(req, res, next) {
   try {
@@ -206,6 +207,25 @@ async function saveSettings(req, res, next) {
   }
 }
 
+async function getSmsAccount(req, res, next) {
+  try {
+    const data = await smsAccountService.getSmsAccount(req.dealershipId);
+    if (!data) return error(res, "SMS account is not connected", 404);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function saveSmsAccount(req, res, next) {
+  try {
+    const data = await smsAccountService.saveSmsAccount(req.dealershipId, req.body || {});
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   dashboard,
   listLeads,
@@ -226,4 +246,6 @@ module.exports = {
   getReports,
   getSettings,
   saveSettings,
+  getSmsAccount,
+  saveSmsAccount,
 };

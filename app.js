@@ -45,6 +45,8 @@ const crmHygieneRoutes = require("./src/routes/crmHygieneRoutes");
 const trustPortalRoutes = require("./src/routes/trustPortalRoutes");
 const roleNotificationRoutes = require("./src/routes/roleNotificationRoutes");
 const { startModel31Jobs } = require("./src/jobs/model31Jobs");
+const { startSmsJob } = require("./src/jobs/smsJob");
+const { handleSmsWebhook } = require("./src/services/smsInboundService");
 const { startYouTubeJob } = require("./src/jobs/youtubeJob");
 const { startXJob } = require("./src/jobs/xJob");
 const errorHandler = require("./src/middleware/errorHandler");
@@ -60,6 +62,7 @@ app.use(
   })
 );
 app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 async function healthCheck(req, res) {
@@ -110,6 +113,16 @@ app.get("/api/marketing/meta/webhook", (req, res) => {
   }
   return res.status(200).send(challenge);
 });
+app.post("/webhook/sms", (req, res) => {
+  handleSmsWebhook(req)
+    .then((result) => {
+      res.status(result.status).type(result.type).send(result.body);
+    })
+    .catch((err) => {
+      console.error("[SMS] Webhook failed:", err.message);
+      res.status(500).type("text/plain").send("SMS webhook failed");
+    });
+});
 app.post("/api/marketing/meta/webhook", (req, res) => {
   res.sendStatus(200);
   handleWebhookPayload(req.body).catch((err) => {
@@ -149,6 +162,11 @@ async function start() {
       await startModel31Jobs();
     } catch (err) {
       console.error("Model 31 jobs did not start. Run npm run migrate.", err.message);
+    }
+    try {
+      startSmsJob();
+    } catch (err) {
+      console.error("SMS worker did not start:", err.message);
     }
     try {
       startYouTubeJob();

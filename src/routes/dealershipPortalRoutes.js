@@ -37,4 +37,7 @@ router.get("/reports/summary", ctrl.getReports);
 router.get("/settings", ctrl.getSettings);
 router.put("/settings", ctrl.saveSettings);
 
+router.get("/sms-account", ctrl.getSmsAccount);
+router.put("/sms-account", ctrl.saveSmsAccount);
+
 module.exports = router;
