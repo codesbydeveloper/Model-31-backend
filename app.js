@@ -43,6 +43,7 @@ const inventoryManagerRoutes = require("./src/routes/inventoryManagerRoutes");
 const model31Routes = require("./src/routes/model31Routes");
 const crmHygieneRoutes = require("./src/routes/crmHygieneRoutes");
 const trustPortalRoutes = require("./src/routes/trustPortalRoutes");
+const roleNotificationRoutes = require("./src/routes/roleNotificationRoutes");
 const { startModel31Jobs } = require("./src/jobs/model31Jobs");
 const { startYouTubeJob } = require("./src/jobs/youtubeJob");
 const { startXJob } = require("./src/jobs/xJob");
@@ -136,6 +137,7 @@ app.use("/api/super-admin/settings", platformSettingsRoutes);
 app.use("/api/model31", model31Routes);
 app.use("/api/crm", crmHygieneRoutes);
 app.use("/api/trust", trustPortalRoutes);
+app.use("/api/notifications", roleNotificationRoutes);
 
 app.use((req, res) => error(res, "Route not found", 404));
 app.use(errorHandler);
