@@ -3,6 +3,11 @@ const { TwitterApi } = require("twitter-api-v2");
 const pool = require("../config/database");
 const Lead = require("../models/Lead");
 const Dealership = require("../models/Dealership");
+const {
+  INVOICE_FLOOR_RULES,
+  formatInventoryList,
+  finishSalesReply,
+} = require("../utils/aiSalesTalk");
 
 const LOW_INTENT = new Set([
   "nice",
@@ -118,21 +123,14 @@ async function inventoryLines() {
       params.push(id);
     }
     const [rows] = await pool.query(
-      `SELECT year, make, model, vehicle, price
+      `SELECT year, make, model, vehicle, price, min_price
        FROM merchandising_vehicles
        ${where}
        ORDER BY updated_at DESC
        LIMIT 30`,
       params
     );
-    if (!rows.length) return "No vehicles are in inventory.";
-    return rows
-      .map((row) => {
-        const name = row.vehicle || [row.year, row.make, row.model].filter(Boolean).join(" ");
-        const price = Number(row.price) > 0 ? `$${Number(row.price)}` : "price not listed";
-        return `- ${name} — ${price}`;
-      })
-      .join("\n");
+    return formatInventoryList(rows);
   } catch (err) {
     console.error("X inventory read failed:", err.message);
     return "Inventory could not be loaded.";
@@ -148,10 +146,12 @@ async function askAI(text, isPublic, extra) {
       "You are the assistant for Model 31, a vehicle dealer, replying publicly on X. " +
       "Reply in under 240 characters, friendly. Never ask for a phone number in public. " +
       "If they want to buy, invite them to send us a DM. " +
-      "Use only the inventory list. Do not invent vehicles or prices.";
+      INVOICE_FLOOR_RULES;
     const dmRules =
       "You are the sales assistant for Model 31, a vehicle dealer, replying to a DM on X. " +
-      "Be short and friendly. Use only the inventory list. Do not invent vehicles or prices. " +
+      "Be short and friendly. " +
+      INVOICE_FLOOR_RULES +
+      " " +
       "If the chat already names a vehicle, stay on that vehicle. " +
       "Find out which vehicle they want, then politely ask for their name and phone number. " +
       "If a phone number is already known, do not ask for it again.";
@@ -308,7 +308,8 @@ async function checkMentions(firstRun) {
     console.log("X mention:", tweet.text);
     const reply = await askAI(tweet.text, true);
     if (!reply) continue;
-    await xClient().v2.reply(reply, tweet.id);
+    const outbound = await finishSalesReply(reply, { maxLen: 270, label: "X" });
+    await xClient().v2.reply(outbound, tweet.id);
     await markProcessed(tweet.id, "mention");
     console.log("X mention reply sent");
   }
@@ -357,11 +358,12 @@ async function checkDMs(firstRun) {
       `Recent chat:\n${chat}\nKnown mobile: ${phone || "none"}\nKnown vehicle interest: ${vehicle || "none"}`
     );
     if (!reply) continue;
+    const outbound = await finishSalesReply(reply, { maxLen: 320, label: "X" });
 
-    await xClient().v2.sendDmToParticipant(dm.sender_id, { text: reply });
+    await xClient().v2.sendDmToParticipant(dm.sender_id, { text: outbound });
     await saveThread(dm.sender_id, {
       senderName,
-      lastMessage: `${chat}\nModel 31: ${reply}`.slice(-4000),
+      lastMessage: `${chat}\nModel 31: ${outbound}`.slice(-4000),
       phone: phone || null,
       vehicle: vehicle || null,
       leadId,

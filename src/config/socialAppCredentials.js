@@ -29,11 +29,6 @@ const PLATFORM_APPS = {
     publicKeys: { clientId: "X_CLIENT_ID" },
     secretKeys: { clientSecret: "X_CLIENT_SECRET" },
   },
-  Whatnot: {
-    helpUrl: "",
-    publicKeys: { clientId: "WHATNOT_CLIENT_ID" },
-    secretKeys: { clientSecret: "WHATNOT_CLIENT_SECRET" },
-  },
 };
 
 function readEnv(name) {

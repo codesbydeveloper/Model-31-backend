@@ -64,6 +64,7 @@ function mapVehicle(row, dealershipName = "") {
     model,
     vehicle,
     price: Number(row.price) || 0,
+    minPrice: row.min_price === null || row.min_price === undefined ? null : Number(row.min_price),
     daysInStock: days,
     photos: Number(row.photos_count) || 0,
     status,
@@ -80,6 +81,7 @@ function mapVehicle(row, dealershipName = "") {
       make,
       model,
       price: Number(row.price) || 0,
+      minPrice: row.min_price === null || row.min_price === undefined ? null : Number(row.min_price),
       daysInStock: days,
       photos: Number(row.photos_count) || 0,
       merchStatus: STATUS_LABELS[status] || status,
@@ -292,8 +294,8 @@ async function create(data) {
     data.arrivedAt || arrivedFromDays(data.daysInStock);
   await pool.query(
     `INSERT INTO merchandising_vehicles
-      (id, dealership_id, stock_number, vin, year, make, model, vehicle, price, photos_count, status, arrived_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, dealership_id, stock_number, vin, year, make, model, vehicle, price, min_price, photos_count, status, arrived_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       data.dealershipId,
@@ -305,6 +307,9 @@ async function create(data) {
       data.vehicle ||
         [data.year, data.make, data.model].filter(Boolean).join(" ").trim(),
       data.price || 0,
+      data.minPrice === undefined || data.minPrice === null || data.minPrice === ""
+        ? null
+        : data.minPrice,
       data.photos || data.photosCount || 0,
       data.status || "NEEDS_PHOTOS",
       arrivedAt,
@@ -331,6 +336,7 @@ async function update(id, data) {
       model = ?,
       vehicle = ?,
       price = ?,
+      min_price = ?,
       photos_count = ?,
       status = ?,
       arrived_at = ?,
@@ -344,6 +350,7 @@ async function update(id, data) {
       data.model !== undefined ? data.model : existing.model,
       data.vehicle !== undefined ? data.vehicle : existing.vehicle,
       data.price !== undefined ? data.price : existing.price,
+      data.minPrice !== undefined ? data.minPrice : existing.minPrice,
       data.photos !== undefined
         ? data.photos
         : data.photosCount !== undefined

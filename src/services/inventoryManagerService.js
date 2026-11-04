@@ -6,6 +6,21 @@ const AppError = require("../utils/AppError");
 
 const STATUSES = Object.keys(MerchandisingVehicle.STATUS_LABELS);
 
+function readMinPrice(body, askingPrice) {
+  const raw = body.minPrice !== undefined ? body.minPrice : body.min_price;
+  if (raw === undefined) return undefined;
+  if (raw === null || String(raw).trim() === "") return null;
+  const n = Number(raw);
+  if (Number.isNaN(n) || n < 0) {
+    throw new AppError("minPrice must be a number 0 or more", 400);
+  }
+  const ask = Number(askingPrice);
+  if (ask > 0 && n > ask) {
+    throw new AppError("minPrice cannot be higher than price", 400);
+  }
+  return n;
+}
+
 async function requireDealership(dealershipId) {
   const dealership = await Dealership.findById(dealershipId);
   if (!dealership) throw new AppError("Dealership not found", 404);
@@ -34,6 +49,7 @@ function snapshotRow(vehicle) {
     stockNumber: vehicle.stockNumber,
     vehicle: vehicle.vehicle,
     price: vehicle.price,
+    minPrice: vehicle.minPrice,
     daysInStock: vehicle.daysInStock,
     status: vehicle.status,
     statusLabel: vehicle.statusLabel,
@@ -48,6 +64,7 @@ function listRow(vehicle) {
     vehicle: vehicle.vehicle,
     vin: vehicle.vin,
     price: vehicle.price,
+    minPrice: vehicle.minPrice,
     daysInStock: vehicle.daysInStock,
     photos: vehicle.photos,
     images: vehicle.images || [],
@@ -108,6 +125,7 @@ async function listNeedsPhotos(dealershipId, query = {}) {
       vehicle: vehicle.vehicle,
       photos: vehicle.photos,
       price: vehicle.price,
+      minPrice: vehicle.minPrice,
       daysInStock: vehicle.daysInStock,
       status: vehicle.status,
       statusLabel: vehicle.statusLabel,
@@ -172,6 +190,7 @@ async function createVehicle(dealershipId, body = {}, files = []) {
     model,
     vehicle: vehicleName,
     price: body.price,
+    minPrice: readMinPrice(body, body.price),
     photos: imageUrls.length || body.photos,
     status,
     daysInStock: body.daysInStock,
@@ -210,6 +229,11 @@ async function updateVehicle(dealershipId, id, body = {}, files = []) {
   await assertVehicle(id, dealershipId);
   const imageUrls = collectImageUrls(body, files);
   if (body.status) body.status = parseStatus(body.status);
+  const existing = await MerchandisingVehicle.findById(id, dealershipId);
+  const asking = body.price !== undefined ? body.price : existing.price;
+  if (body.minPrice !== undefined || body.min_price !== undefined) {
+    body.minPrice = readMinPrice(body, asking);
+  }
   await MerchandisingVehicle.update(id, body);
   if (imageUrls.length) await MerchandisingVehicle.addImages(id, imageUrls);
   const vehicle = await MerchandisingVehicle.findById(id, dealershipId);

@@ -3,6 +3,11 @@ const Conversation = require("../models/Conversation");
 const { decryptToken } = require("../utils/tokenCrypto");
 const { isQuietHours, nextOpenUtc, formatUtcSql } = require("../utils/dealerClock");
 const { sendSms } = require("./smsCarrierService");
+const {
+  INVOICE_FLOOR_RULES,
+  formatInventoryList,
+  finishSalesReply,
+} = require("../utils/aiSalesTalk");
 
 let running = false;
 
@@ -56,7 +61,8 @@ async function loadAccount(dealershipId) {
     [dealershipId]
   );
   const row = rows[0];
-  if (!row?.sms_provider || !row.sms_phone_number || !row.sms_auth_token) return null;
+  if (!row) return null;
+  if (!row.sms_provider || !row.sms_phone_number || !row.sms_auth_token) return null;
   return {
     dealershipId: row.id,
     dealershipName: row.name,
@@ -71,7 +77,7 @@ async function loadAccount(dealershipId) {
 
 async function isOptedOut(dealershipId, phone) {
   const [rows] = await pool.query(
-    `SELECT id FROM sms_opt_outs WHERE dealership_id = ? AND phone_number = ? LIMIT 1`,
+    `SELECT 1 AS opted_out FROM sms_opt_outs WHERE dealership_id = ? AND phone_number = ? LIMIT 1`,
     [dealershipId, phone]
   );
   return Boolean(rows[0]);
@@ -94,21 +100,14 @@ async function optIn(dealershipId, phone) {
 async function inventoryLines(dealershipId) {
   try {
     const [rows] = await pool.query(
-      `SELECT year, make, model, vehicle, price
+      `SELECT year, make, model, vehicle, price, min_price
        FROM merchandising_vehicles
        WHERE dealership_id = ?
        ORDER BY updated_at DESC
        LIMIT 30`,
       [dealershipId]
     );
-    if (!rows.length) return "No vehicles are in inventory.";
-    return rows
-      .map((row) => {
-        const name = row.vehicle || [row.year, row.make, row.model].filter(Boolean).join(" ");
-        const price = Number(row.price) > 0 ? `$${Number(row.price)}` : "price not listed";
-        return `- ${name} — ${price}`;
-      })
-      .join("\n");
+    return formatInventoryList(rows);
   } catch (err) {
     console.error("[SMS] Inventory read failed:", err.message);
     return "No vehicles are in inventory.";
@@ -144,15 +143,14 @@ async function aiReply({ dealershipName, text, inventory, chat }) {
       },
       body: JSON.stringify({
         model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-        temperature: 0.3,
+        temperature: 0.7,
         messages: [
           {
             role: "system",
             content:
               `You reply to SMS messages for the car dealership ${dealershipName}. ` +
-              "Use only the inventory list. If the customer asks for a vehicle that is not on the list, say it is not available. " +
-              "Do not invent vehicles, prices, mileage, colors, or features. " +
-              "Write 1 or 2 short sentences in plain text. Do not mention AI. " +
+              INVOICE_FLOOR_RULES +
+              " Write 1 or 2 short sentences in plain text. Do not mention AI. " +
               "If they only greet you and no vehicle is named, ask which vehicle they want.",
           },
           {
@@ -168,7 +166,7 @@ async function aiReply({ dealershipName, text, inventory, chat }) {
       console.error("[SMS] AI reply failed:", data?.error?.message || response.status);
       return fallback;
     }
-    const reply = String(data.choices?.[0]?.message?.content || "").trim().slice(0, 320);
+    const reply = String(data.choices?.[0]?.message?.content || "").trim().slice(0, 260);
     return reply || fallback;
   } catch (err) {
     console.error("[SMS] AI reply failed:", err.message);
@@ -176,13 +174,17 @@ async function aiReply({ dealershipName, text, inventory, chat }) {
   }
 }
 
-async function sendAndRecord(message, account, text) {
-  await sendSms(account, { to: message.from_number, body: text });
+async function sendAndRecord(message, account, text, { humanize = false } = {}) {
+  let outbound = String(text || "").trim();
+  if (humanize) {
+    outbound = await finishSalesReply(outbound, { label: "SMS" });
+  }
+  await sendSms(account, { to: message.from_number, body: outbound });
   if (message.lead_id) {
     await Conversation.createMessage({
       leadId: message.lead_id,
       senderType: "AI",
-      message: text,
+      message: outbound,
     });
   }
   await mark(message.id, "sent");
@@ -204,6 +206,15 @@ async function processOne() {
 
     if (keyword === "STOP") {
       await optOut(account.dealershipId, message.from_number);
+      // Twilio, Telnyx, Plivo, Bandwidth already send the STOP SMS.
+      // Only Sinch needs Model 31 to send it, or the customer gets no confirmation.
+      const carrierSendsStop = ["Twilio", "Telnyx", "Plivo", "Bandwidth"].includes(
+        account.providerType
+      );
+      if (carrierSendsStop) {
+        await mark(message.id, "skipped", "Carrier sends STOP confirmation");
+        return true;
+      }
       await sendAndRecord(
         message,
         account,
@@ -253,7 +264,7 @@ async function processOne() {
       inventory,
       chat,
     });
-    await sendAndRecord(message, account, reply);
+    await sendAndRecord(message, account, reply, { humanize: true });
     console.log(`[SMS] Sent reply for message ${message.id}.`);
     return true;
   } catch (err) {

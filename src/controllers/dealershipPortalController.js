@@ -210,7 +210,9 @@ async function saveSettings(req, res, next) {
 async function getSmsAccount(req, res, next) {
   try {
     const data = await smsAccountService.getSmsAccount(req.dealershipId);
-    if (!data) return error(res, "SMS account is not connected", 404);
+    if (!data) {
+      return success(res, { connected: false });
+    }
     return success(res, data);
   } catch (err) {
     next(err);

@@ -4,6 +4,21 @@ const MerchandisingVehicle = require("../models/MerchandisingVehicle");
 const Dealership = require("../models/Dealership");
 const AppError = require("../utils/AppError");
 
+function readMinPrice(body, askingPrice) {
+  const raw = body.minPrice !== undefined ? body.minPrice : body.min_price;
+  if (raw === undefined) return undefined;
+  if (raw === null || String(raw).trim() === "") return null;
+  const n = Number(raw);
+  if (Number.isNaN(n) || n < 0) {
+    throw new AppError("minPrice must be a number 0 or more", 400);
+  }
+  const ask = Number(askingPrice);
+  if (ask > 0 && n > ask) {
+    throw new AppError("minPrice cannot be higher than price", 400);
+  }
+  return n;
+}
+
 const PRICE_OPTIONS = [
   "All prices",
   "Under $50,000",
@@ -56,6 +71,7 @@ function toAdminRow(vehicle) {
     model: vehicle.model,
     trim: "",
     price: vehicle.price,
+    minPrice: vehicle.minPrice,
     status: vehicle.status,
     statusLabel: vehicle.statusLabel,
     dealership: vehicle.dealershipName || "",
@@ -185,6 +201,7 @@ async function createVehicle(body = {}, files = []) {
     model,
     vehicle: vehicleName,
     price: body.price,
+    minPrice: readMinPrice(body, body.price),
     photos: imageUrls.length,
     status,
     daysInStock: body.daysInInventory || body.daysInStock,
@@ -239,6 +256,15 @@ async function updateVehicle(vehicleId, body = {}, files = []) {
       body.price !== undefined && String(body.price).trim() !== ""
         ? body.price
         : existing.price,
+    minPrice:
+      body.minPrice !== undefined || body.min_price !== undefined
+        ? readMinPrice(
+            body,
+            body.price !== undefined && String(body.price).trim() !== ""
+              ? body.price
+              : existing.price
+          )
+        : existing.minPrice,
     status,
     dealershipId,
   });

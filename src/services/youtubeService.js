@@ -1,5 +1,10 @@
 const { google } = require("googleapis");
 const pool = require("../config/database");
+const {
+  INVOICE_FLOOR_RULES,
+  formatInventoryList,
+  finishSalesReply,
+} = require("../utils/aiSalesTalk");
 
 const CHANNEL_ID = process.env.YOUTUBE_CHANNEL_ID;
 
@@ -15,19 +20,12 @@ function youtubeClient() {
 async function inventoryLines() {
   try {
     const [rows] = await pool.query(
-      `SELECT year, make, model, vehicle, price
+      `SELECT year, make, model, vehicle, price, min_price
        FROM merchandising_vehicles
        ORDER BY updated_at DESC
        LIMIT 30`
     );
-    if (!rows.length) return "No vehicles are in inventory.";
-    return rows
-      .map((row) => {
-        const name = row.vehicle || [row.year, row.make, row.model].filter(Boolean).join(" ");
-        const price = Number(row.price) > 0 ? `$${Number(row.price)}` : "price not listed";
-        return `- ${name} — ${price}`;
-      })
-      .join("\n");
+    return formatInventoryList(rows);
   } catch (err) {
     console.error("YouTube inventory read failed:", err.message);
     return "Inventory could not be loaded.";
@@ -55,8 +53,7 @@ async function askAI(text) {
               "You are the assistant for Model 31, a vehicle dealer, replying to a YouTube comment. " +
               "Reply in 1-2 short, friendly sentences. Never ask for a phone number in public. " +
               "If they are interested in buying, invite them to message Model 31 on Facebook or Instagram. " +
-              "Use only the inventory list. If they ask for a vehicle that is not on the list, say it is not available. " +
-              "Do not invent vehicles or prices.",
+              INVOICE_FLOOR_RULES,
           },
           {
             role: "user",
@@ -114,11 +111,12 @@ async function checkYouTubeComments() {
       console.log("YouTube comment:", top.authorDisplayName, "-", top.textOriginal);
       const reply = await askAI(top.textOriginal);
       if (!reply) continue;
+      const outbound = await finishSalesReply(reply, { maxLen: 400, label: "YouTube" });
 
       await youtube.comments.insert({
         part: ["snippet"],
         requestBody: {
-          snippet: { parentId: commentId, textOriginal: reply },
+          snippet: { parentId: commentId, textOriginal: outbound },
         },
       });
       await markReplied(commentId);

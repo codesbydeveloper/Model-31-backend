@@ -8,7 +8,6 @@ const PLATFORMS = [
   { slug: "tiktok", name: "TikTok", icon: "tiktok" },
   { slug: "youtube", name: "YouTube", icon: "youtube" },
   { slug: "x", name: "X", icon: "x" },
-  { slug: "whatnot", name: "Whatnot", icon: "whatnot" },
 ];
 
 const platformState = {
@@ -43,12 +42,6 @@ const platformState = {
     posts: 0,
   },
   x: {
-    connectionStatus: "Disconnected",
-    activityStatus: "Inactive",
-    lastActivity: null,
-    posts: 0,
-  },
-  whatnot: {
     connectionStatus: "Disconnected",
     activityStatus: "Inactive",
     lastActivity: null,
@@ -145,7 +138,9 @@ async function getOverview() {
       title: "Authorized Staff Social Accounts",
       description:
         "Engagement from accounts with Model 31 Source ON is treated as a Model 31 source.",
-      rows: accounts.map(mapStaffAccountRow),
+      rows: accounts
+        .filter((account) => String(account.platform || "").toLowerCase() !== "whatnot")
+        .map(mapStaffAccountRow),
     },
   };
 }

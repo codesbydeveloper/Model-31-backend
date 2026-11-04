@@ -53,7 +53,6 @@ function readInboundMessage(body) {
 }
 
 function unsignedWebhookAllowed() {
-  if (String(process.env.SMS_ALLOW_UNSIGNED_WEBHOOK || "").toLowerCase() === "true") return true;
   return String(process.env.NODE_ENV || "").toLowerCase() !== "production";
 }
 
@@ -130,7 +129,6 @@ async function handleSmsWebhook(req) {
     authToken = decryptToken(dealer.sms_auth_token);
   } catch (err) {
     console.error(`[SMS] Dealership ${dealer.id} token could not be decrypted.`);
-    return textResult(500, "SMS secret could not be read");
   }
   if (!authToken) {
     return textResult(500, "SMS secret could not be read");

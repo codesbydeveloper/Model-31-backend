@@ -2,6 +2,11 @@ const { randomUUID } = require("crypto");
 const pool = require("../config/database");
 const Lead = require("../models/Lead");
 const Dealership = require("../models/Dealership");
+const {
+  INVOICE_FLOOR_RULES,
+  formatInventoryList,
+  finishSalesReply,
+} = require("../utils/aiSalesTalk");
 
 const LOW_INTENT = new Set([
   "nice",
@@ -258,21 +263,14 @@ async function loadInventoryLines(dealershipId) {
     params.push(dealershipId);
   }
   const [rows] = await pool.query(
-    `SELECT year, make, model, vehicle, price
+    `SELECT year, make, model, vehicle, price, min_price
      FROM merchandising_vehicles
      ${where}
      ORDER BY updated_at DESC
      LIMIT 30`,
     params
   );
-  if (!rows.length) return "No vehicles are in inventory.";
-  return rows
-    .map((row) => {
-      const name = row.vehicle || [row.year, row.make, row.model].filter(Boolean).join(" ");
-      const price = Number(row.price) > 0 ? `$${Number(row.price)}` : "price not listed";
-      return `- ${name} — ${price}`;
-    })
-    .join("\n");
+  return formatInventoryList(rows);
 }
 
 async function recentChatLines(senderId) {
@@ -311,9 +309,9 @@ async function aiFacebookReply({ text, phone, vehicle, inventory, chat }) {
         messages: [
           {
             role: "system",
-            content: `You reply to Facebook messages for a car dealership named Model 31.
-Use only the inventory list. If the customer asks for a vehicle that is not on the list, say it is not available.
-Do not invent vehicles, prices, mileage, colors, or features. You may repeat a detail only when it is already written in an inventory line.
+            content: `You reply to Facebook and Instagram messages for a car dealership named Model 31.
+${INVOICE_FLOOR_RULES}
+You may repeat a detail only when it is already written in an inventory line.
 Write 1 or 2 short sentences in plain text. Do not mention AI.
 Read the recent chat. If the customer says "that", "tell me more", or "I want to purchase", continue about the vehicle already named in the chat. Do not ask which vehicle again when the chat already names one.
 If they only greet you and no vehicle is in the chat yet, greet them and ask which vehicle they want.
@@ -408,8 +406,10 @@ async function handleDirectMessage({ senderId, senderName, text }) {
     loadInventoryLines(await dealershipIdForPage()),
     recentChatLines(senderId),
   ]);
-  const reply =
-    (await aiFacebookReply({ text, phone, vehicle, inventory, chat })) || fallbackReply(phone);
+  const reply = await finishSalesReply(
+    (await aiFacebookReply({ text, phone, vehicle, inventory, chat })) || fallbackReply(phone),
+    { maxLen: 500, label: "Facebook" }
+  );
   await sendPageMessage({ id: senderId }, reply);
 }
 
@@ -472,9 +472,10 @@ async function graphPostJson(path, payload) {
 
 async function instagramReplyText(text, phone = "", vehicle = "") {
   const inventory = await loadInventoryLines(await dealershipIdForPage());
-  return (
+  return finishSalesReply(
     (await aiFacebookReply({ text, phone, vehicle, inventory, chat: "" })) ||
-    fallbackReply(phone)
+      fallbackReply(phone),
+    { maxLen: 500, label: "Instagram" }
   );
 }
 
@@ -684,14 +685,16 @@ async function handleWhatsAppMessage({ messageId, from, text, name }) {
     }
 
     const inventory = await loadInventoryLines(await dealershipIdForPage());
-    const reply =
+    const reply = await finishSalesReply(
       (await aiFacebookReply({
         text,
         phone,
         vehicle: vehicle || "",
         inventory,
         chat: previous && previous !== text ? previous : "",
-      })) || fallbackReply(phone);
+      })) || fallbackReply(phone),
+      { maxLen: 500, label: "WhatsApp" }
+    );
     await sendWhatsAppMessage(from, reply);
     await updateThread(key, {
       lastMessage: [previous, `Customer: ${text}`, `Model 31: ${reply}`].filter(Boolean).join("\n").slice(-4000),
