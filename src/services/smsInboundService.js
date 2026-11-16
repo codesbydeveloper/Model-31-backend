@@ -56,13 +56,7 @@ function unsignedWebhookAllowed() {
   return String(process.env.NODE_ENV || "").toLowerCase() !== "production";
 }
 
-function twilioSignatureValid(req, token) {
-  const signature = req.get("X-Twilio-Signature") || "";
-  if (!signature) return null;
-  const proto = req.get("x-forwarded-proto") || req.protocol;
-  const host = req.get("x-forwarded-host") || req.get("host");
-  const url = `${proto}://${host}${req.originalUrl}`;
-  const params = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+function signatureMatches(url, params, token, signature) {
   const signed = Object.keys(params)
     .sort()
     .reduce((acc, key) => acc + key + String(params[key] ?? ""), url);
@@ -71,6 +65,23 @@ function twilioSignatureValid(req, token) {
   const b = Buffer.from(signature);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+function twilioSignatureValid(req, token) {
+  const signature = req.get("X-Twilio-Signature") || "";
+  if (!signature) return null;
+  const params = req.body && typeof req.body === "object" && !Array.isArray(req.body) ? req.body : {};
+  const forwarded = String(req.get("x-forwarded-proto") || "")
+    .split(",")[0]
+    .trim();
+  const proto = forwarded || req.protocol || "https";
+  const host = String(req.get("x-forwarded-host") || req.get("host") || "")
+    .split(",")[0]
+    .trim();
+  const requestUrl = `${proto}://${host}${req.originalUrl}`;
+  const httpsUrl = requestUrl.replace(/^http:\/\//i, "https://");
+  const publicUrl = process.env.SMS_PUBLIC_WEBHOOK_URL || "https://model31.raomtech.com/webhook/sms";
+  return [publicUrl, httpsUrl, requestUrl].some((url) => signatureMatches(url, params, token, signature));
 }
 
 async function findDealerByPhone(phone) {
