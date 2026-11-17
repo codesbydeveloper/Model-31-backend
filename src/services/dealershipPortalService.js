@@ -297,13 +297,39 @@ async function listSalespeople(dealershipId, query) {
   return { salespeople, pagination: result.pagination };
 }
 
+function smsAccountCard(sms) {
+  if (!sms?.phoneNumber && !sms?.providerType) return null;
+  const connected = sms.status === "CONNECTED" || sms.connected === true;
+  return {
+    id: "sms_account",
+    platform: "SMS",
+    accountName: sms.phoneNumber,
+    status: connected ? "CONNECTED" : "DISCONNECTED",
+    providerType: sms.providerType,
+    phoneNumber: sms.phoneNumber,
+    lastUpdated: sms.lastUpdated || null,
+    canConnect: !connected,
+    canDisconnect: connected,
+    canEdit: true,
+    canDelete: true,
+    canSettings: true,
+    source: "text_messages",
+  };
+}
+
 async function listSocialAccounts(dealershipId) {
   await getDealershipContext(dealershipId);
   const accounts = await SocialAccount.listByDealership(dealershipId);
+  const { listGates, applyConnectGate } = require("./socialPlatformGateService");
+  const { getSmsAccount } = require("./smsAccountService");
+  const [gates, sms] = await Promise.all([listGates(), getSmsAccount(dealershipId)]);
+  const openByName = new Map(gates.map((gate) => [gate.platform, gate.connected]));
+  const socialCards = accounts
+    .filter((account) => String(account.platform || "").toLowerCase() !== "whatnot")
+    .map((account) => applyConnectGate(account, openByName.get(account.platform)));
+  const smsCard = smsAccountCard(sms);
   return {
-    accounts: accounts.filter(
-      (account) => String(account.platform || "").toLowerCase() !== "whatnot"
-    ),
+    accounts: smsCard ? [...socialCards, smsCard] : socialCards,
   };
 }
 
@@ -311,6 +337,10 @@ async function updateSocialAccount(dealershipId, id, body) {
   const account = await SocialAccount.findById(id);
   if (!account || account.dealershipId !== dealershipId) {
     throw new AppError("Social account not found", 404);
+  }
+  if (String(body.status || "").toUpperCase() === "CONNECTED") {
+    const { assertPlatformOpen } = require("./socialPlatformGateService");
+    await assertPlatformOpen(account.platform);
   }
   return SocialAccount.update(id, {
     accountName: body.accountName !== undefined ? body.accountName : account.accountName,
@@ -322,6 +352,10 @@ async function updateSocialAccount(dealershipId, id, body) {
 }
 
 async function disconnectSocialAccount(dealershipId, id) {
+  if (id === "sms_account") {
+    const { disconnectSmsAccount } = require("./smsAccountService");
+    return disconnectSmsAccount(dealershipId);
+  }
   const account = await SocialAccount.findById(id);
   if (!account || account.dealershipId !== dealershipId) {
     throw new AppError("Social account not found", 404);

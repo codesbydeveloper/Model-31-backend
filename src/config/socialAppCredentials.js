@@ -21,18 +21,30 @@ const PLATFORM_APPS = {
   },
   YouTube: {
     helpUrl: "https://console.cloud.google.com",
-    publicKeys: { clientId: "GOOGLE_CLIENT_ID" },
-    secretKeys: { clientSecret: "GOOGLE_CLIENT_SECRET" },
+    publicKeys: { clientId: ["YOUTUBE_CLIENT_ID", "GOOGLE_CLIENT_ID"] },
+    secretKeys: { clientSecret: ["YOUTUBE_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET"] },
   },
   X: {
     helpUrl: "https://developer.x.com",
-    publicKeys: { clientId: "X_CLIENT_ID" },
-    secretKeys: { clientSecret: "X_CLIENT_SECRET" },
+    publicKeys: { clientId: ["X_API_KEY", "X_CLIENT_ID"] },
+    secretKeys: { clientSecret: ["X_API_SECRET", "X_CLIENT_SECRET"] },
   },
 };
 
 function readEnv(name) {
   return String(process.env[name] || "").trim();
+}
+
+function envNames(value) {
+  return Array.isArray(value) ? value : [value];
+}
+
+function firstEnv(names) {
+  for (const name of envNames(names)) {
+    const value = readEnv(name);
+    if (value) return value;
+  }
+  return "";
 }
 
 function getSocialAppCredentials(platform) {
@@ -51,12 +63,12 @@ function getSocialAppCredentials(platform) {
   const missing = [];
   const publicCreds = {};
   for (const [field, envName] of Object.entries(spec.publicKeys)) {
-    const value = readEnv(envName);
-    if (!value) missing.push(envName);
+    const value = firstEnv(envName);
+    if (!value) missing.push(envNames(envName)[0]);
     else publicCreds[field] = value;
   }
   for (const envName of Object.values(spec.secretKeys)) {
-    if (!readEnv(envName)) missing.push(envName);
+    if (!firstEnv(envName)) missing.push(envNames(envName)[0]);
   }
 
   return {

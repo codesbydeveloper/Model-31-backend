@@ -4,10 +4,25 @@ const {
   authMiddleware,
   requireMarketingManager,
 } = require("../middleware/authMiddleware");
+const { error } = require("../utils/response");
+const { DEALERSHIP_PORTAL_ROLES } = require("../utils/constants");
 
 const router = express.Router();
 
-router.use(authMiddleware, requireMarketingManager);
+function allowMarketingOrDealershipConnect(req, res, next) {
+  const dealershipConnect =
+    req.method === "POST" && /^\/social-accounts\/[^/]+\/connect$/.test(req.path);
+  if (dealershipConnect && DEALERSHIP_PORTAL_ROLES.includes(req.user?.role)) {
+    if (!req.user.dealershipId) {
+      return error(res, "No dealership assigned to this account", 403);
+    }
+    req.dealershipId = req.user.dealershipId;
+    return next();
+  }
+  return requireMarketingManager(req, res, next);
+}
+
+router.use(authMiddleware, allowMarketingOrDealershipConnect);
 
 router.get("/dashboard", ctrl.dashboard);
 router.get("/acquisition/dashboard", ctrl.acquisitionDashboard);

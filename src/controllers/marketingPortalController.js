@@ -465,7 +465,7 @@ async function connectSocialAccount(req, res, next) {
   try {
     return success(
       res,
-      await svc.connectSocialAccount(req.params.id, req.body)
+      await svc.connectSocialAccount(req.params.id, req.body, req.dealershipId)
     );
   } catch (err) {
     next(err);

@@ -73,6 +73,7 @@ function mapCard(account) {
     canConnect: account.canConnect,
     canDisconnect: account.canDisconnect,
     canSettings: account.canSettings,
+    superAdminConnected: Boolean(account.superAdminConnected),
   };
 }
 
@@ -234,6 +235,10 @@ async function updateStats(id, stats = {}) {
 }
 
 async function connect(id, data = {}) {
+  const existing = await findById(id);
+  if (!existing) return null;
+  const { assertPlatformOpen } = require("../services/socialPlatformGateService");
+  await assertPlatformOpen(existing.platform);
   return update(id, {
     accountName:
       data.accountName !== undefined ? data.accountName : undefined,

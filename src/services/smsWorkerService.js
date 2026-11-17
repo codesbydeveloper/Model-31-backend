@@ -54,7 +54,7 @@ async function mark(id, status, lastError = null, sendAfter = null) {
 async function loadAccount(dealershipId) {
   const [rows] = await pool.query(
     `SELECT id, name, timezone, sms_provider, sms_account_sid, sms_auth_token,
-            sms_phone_number, sms_profile_id
+            sms_phone_number, sms_profile_id, sms_status
      FROM dealerships
      WHERE id = ?
      LIMIT 1`,
@@ -72,6 +72,7 @@ async function loadAccount(dealershipId) {
     authToken: decryptToken(row.sms_auth_token),
     phoneNumber: row.sms_phone_number,
     carrierProfileId: row.sms_profile_id || null,
+    paused: String(row.sms_status || "CONNECTED").toUpperCase() === "DISCONNECTED",
   };
 }
 
@@ -198,6 +199,10 @@ async function processOne() {
     const account = await loadAccount(message.dealership_id);
     if (!account) {
       await mark(message.id, "failed", "Dealership SMS account is missing");
+      return true;
+    }
+    if (account.paused) {
+      await mark(message.id, "skipped", "Text account is disconnected");
       return true;
     }
 

@@ -1930,9 +1930,13 @@ async function listSocialAccounts(query = {}, user = null) {
   }
   await ensureSocialPlatformAccounts(dealershipId);
   const accounts = await SocialAccount.list({ ...query, dealershipId });
+  const { listGates, applyConnectGate } = require("./socialPlatformGateService");
+  const gates = await listGates();
+  const openByName = new Map(gates.map((gate) => [gate.platform, gate.connected]));
   return {
     accounts: accounts.map((account) => {
-      const card = SocialAccount.mapCard(account);
+      const gated = applyConnectGate(account, openByName.get(account.platform));
+      const card = SocialAccount.mapCard(gated);
       const form = connectFormForPlatform(account.platform);
       return {
         ...card,
@@ -2085,11 +2089,15 @@ async function getSocialConnectForm(id) {
   };
 }
 
-async function connectSocialAccount(id, body = {}) {
+async function connectSocialAccount(id, body = {}, dealershipId) {
   const SocialAccount = require("../models/SocialAccount");
   const AppError = require("../utils/AppError");
   const existing = await SocialAccount.findById(id);
-  if (!existing) throw new AppError("Social account not found", 404);
+  if (!existing || (dealershipId && existing.dealershipId !== dealershipId)) {
+    throw new AppError("Social account not found", 404);
+  }
+  const { assertPlatformOpen } = require("./socialPlatformGateService");
+  await assertPlatformOpen(existing.platform);
   if (existing.platform === "Facebook" || existing.platform === "Instagram") {
     const { connectConfiguredPage } = require("./metaPageService");
     return connectConfiguredPage(existing);

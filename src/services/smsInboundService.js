@@ -86,7 +86,8 @@ function twilioSignatureValid(req, token) {
 
 async function findDealerByPhone(phone) {
   const [rows] = await pool.query(
-    `SELECT id, name, timezone, sms_provider, sms_account_sid, sms_auth_token, sms_phone_number
+    `SELECT id, name, timezone, sms_provider, sms_account_sid, sms_auth_token,
+            sms_phone_number, sms_status
      FROM dealerships
      WHERE sms_phone_number = ?
      LIMIT 1`,
@@ -133,6 +134,10 @@ async function handleSmsWebhook(req) {
   const dealer = await findDealerByPhone(inbound.to);
   if (!dealer) {
     return textResult(404, "Dealer not found");
+  }
+  if (String(dealer.sms_status || "CONNECTED").toUpperCase() === "DISCONNECTED") {
+    console.log(`[SMS] Dealership ${dealer.id} text account is disconnected. Inbound ignored.`);
+    return twiml();
   }
 
   let authToken = "";

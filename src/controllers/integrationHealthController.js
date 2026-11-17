@@ -3,7 +3,7 @@ const { success } = require("../utils/response");
 
 async function overview(req, res, next) {
   try {
-    return success(res, svc.getOverview());
+    return success(res, await svc.getOverview());
   } catch (err) {
     next(err);
   }
@@ -11,7 +11,7 @@ async function overview(req, res, next) {
 
 async function runHealthCheck(req, res, next) {
   try {
-    return success(res, svc.runHealthCheck());
+    return success(res, await svc.runHealthCheck());
   } catch (err) {
     next(err);
   }

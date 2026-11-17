@@ -1,5 +1,9 @@
 const SocialAccount = require("../models/SocialAccount");
 const AppError = require("../utils/AppError");
+const {
+  listGates,
+  setPlatformOpen,
+} = require("./socialPlatformGateService");
 
 const PLATFORMS = [
   { slug: "facebook", name: "Facebook", icon: "facebook" },
@@ -9,45 +13,6 @@ const PLATFORMS = [
   { slug: "youtube", name: "YouTube", icon: "youtube" },
   { slug: "x", name: "X", icon: "x" },
 ];
-
-const platformState = {
-  facebook: {
-    connectionStatus: "Disconnected",
-    activityStatus: "Inactive",
-    lastActivity: null,
-    posts: 0,
-  },
-  instagram: {
-    connectionStatus: "Disconnected",
-    activityStatus: "Inactive",
-    lastActivity: null,
-    posts: 0,
-  },
-  whatsapp: {
-    connectionStatus: "Disconnected",
-    activityStatus: "Inactive",
-    lastActivity: null,
-    posts: 0,
-  },
-  tiktok: {
-    connectionStatus: "Disconnected",
-    activityStatus: "Inactive",
-    lastActivity: null,
-    posts: 0,
-  },
-  youtube: {
-    connectionStatus: "Disconnected",
-    activityStatus: "Inactive",
-    lastActivity: null,
-    posts: 0,
-  },
-  x: {
-    connectionStatus: "Disconnected",
-    activityStatus: "Inactive",
-    lastActivity: null,
-    posts: 0,
-  },
-};
 
 const SETTINGS_PLACEHOLDER =
   "OAuth and publishing settings will be connected in a later step. This modal is a simulated placeholder for";
@@ -72,28 +37,18 @@ function formatLastActivity(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function mapPlatformCard(platform) {
-  const state = platformState[platform.slug] || {
-    connectionStatus: "Disconnected",
-    activityStatus: "Inactive",
-    lastActivity: null,
-    posts: 0,
-  };
-
-  const connected =
-    state.connectionStatus === "Connected" ||
-    state.connectionStatus === "Partial";
-
+function mapPlatformCard(platform, gate = null, posts = 0) {
+  const connected = Boolean(gate?.connected);
   return {
     slug: platform.slug,
     name: platform.name,
     icon: platform.icon,
-    connectionStatus: state.connectionStatus,
-    activityStatus: state.activityStatus,
-    lastActivity: formatLastActivity(state.lastActivity),
-    lastActivityRaw: state.lastActivity,
-    posts: state.posts,
-    canConnect: !connected || state.connectionStatus === "Partial",
+    connectionStatus: connected ? "Connected" : "Disconnected",
+    activityStatus: connected ? "Active" : "Inactive",
+    lastActivity: formatLastActivity(gate?.updatedAt),
+    lastActivityRaw: gate?.updatedAt || null,
+    posts,
+    canConnect: !connected,
     canDisconnect: connected,
     canSettings: true,
   };
@@ -129,11 +84,26 @@ async function findPrimaryAccountForPlatform(platformName) {
 }
 
 async function getOverview() {
-  const accounts = await SocialAccount.list();
+  const [accounts, gates] = await Promise.all([
+    SocialAccount.list(),
+    listGates(),
+  ]);
+  const gateByName = new Map(gates.map((gate) => [gate.platform, gate]));
+  const postsByPlatform = accounts.reduce((acc, account) => {
+    const name = account.platform;
+    acc[name] = (acc[name] || 0) + (Number(account.posts) || 0);
+    return acc;
+  }, {});
 
   return {
     pageTitle: "Social Integrations",
-    platforms: PLATFORMS.map(mapPlatformCard),
+    platforms: PLATFORMS.map((platform) =>
+      mapPlatformCard(
+        platform,
+        gateByName.get(platform.name),
+        postsByPlatform[platform.name] || 0
+      )
+    ),
     staffAccounts: {
       title: "Authorized Staff Social Accounts",
       description:
@@ -173,31 +143,18 @@ async function connectPlatform(platformSlug) {
   const platformName = slugToName(platformSlug);
   if (!platformName) throw new AppError("Platform not found", 404);
 
-  const state = platformState[platformSlug];
-  if (!state) throw new AppError("Platform not found", 404);
-
-  if (state.connectionStatus === "Connected") {
+  const current = (await listGates()).find((gate) => gate.platform === platformName);
+  if (current?.connected) {
     throw new AppError(`${platformName} is already connected`, 400);
   }
 
-  state.connectionStatus = "Connected";
-  state.activityStatus = "Active";
-  state.lastActivity = new Date().toISOString();
-  if (state.posts === 0 && platformSlug !== "whatsapp") {
-    state.posts = 0;
-  }
-
-  const account = await findPrimaryAccountForPlatform(platformName);
-  if (account) {
-    await SocialAccount.connect(account.id, {
-      accountName: account.accountName,
-      environment: account.environment,
-    });
-  }
-
+  const gate = await setPlatformOpen(platformName, true);
   return {
-    message: `${platformName} connected`,
-    platform: mapPlatformCard(PLATFORMS.find((p) => p.slug === platformSlug)),
+    message: `${platformName} connected. Dealerships can now connect this platform.`,
+    platform: mapPlatformCard(
+      PLATFORMS.find((p) => p.slug === platformSlug),
+      gate
+    ),
   };
 }
 
@@ -205,24 +162,19 @@ async function disconnectPlatform(platformSlug) {
   const platformName = slugToName(platformSlug);
   if (!platformName) throw new AppError("Platform not found", 404);
 
-  const state = platformState[platformSlug];
-  if (!state) throw new AppError("Platform not found", 404);
-
-  if (state.connectionStatus === "Disconnected") {
+  const current = (await listGates()).find((gate) => gate.platform === platformName);
+  if (!current?.connected) {
     throw new AppError(`${platformName} is already disconnected`, 400);
   }
 
-  state.connectionStatus = "Disconnected";
-  state.activityStatus = "Inactive";
-
-  const account = await findPrimaryAccountForPlatform(platformName);
-  if (account && account.status === "CONNECTED") {
-    await SocialAccount.disconnect(account.id);
-  }
-
+  const gate = await setPlatformOpen(platformName, false);
+  await SocialAccount.disconnectByPlatform(platformName);
   return {
-    message: `${platformName} disconnected`,
-    platform: mapPlatformCard(PLATFORMS.find((p) => p.slug === platformSlug)),
+    message: `${platformName} disconnected. Dealerships can no longer keep this platform connected.`,
+    platform: mapPlatformCard(
+      PLATFORMS.find((p) => p.slug === platformSlug),
+      gate
+    ),
   };
 }
 

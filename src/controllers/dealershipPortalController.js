@@ -228,6 +228,33 @@ async function saveSmsAccount(req, res, next) {
   }
 }
 
+async function connectSmsAccount(req, res, next) {
+  try {
+    const data = await smsAccountService.connectSmsAccount(req.dealershipId);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function disconnectSmsAccount(req, res, next) {
+  try {
+    const data = await smsAccountService.disconnectSmsAccount(req.dealershipId);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function deleteSmsAccount(req, res, next) {
+  try {
+    const data = await smsAccountService.deleteSmsAccount(req.dealershipId);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   dashboard,
   listLeads,
@@ -250,4 +277,7 @@ module.exports = {
   saveSettings,
   getSmsAccount,
   saveSmsAccount,
+  connectSmsAccount,
+  disconnectSmsAccount,
+  deleteSmsAccount,
 };

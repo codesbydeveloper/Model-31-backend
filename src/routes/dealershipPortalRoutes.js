@@ -39,5 +39,8 @@ router.put("/settings", ctrl.saveSettings);
 
 router.get("/sms-account", ctrl.getSmsAccount);
 router.put("/sms-account", ctrl.saveSmsAccount);
+router.post("/sms-account/connect", ctrl.connectSmsAccount);
+router.post("/sms-account/disconnect", ctrl.disconnectSmsAccount);
+router.delete("/sms-account", ctrl.deleteSmsAccount);
 
 module.exports = router;

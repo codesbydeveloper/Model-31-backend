@@ -143,7 +143,8 @@ async function connectConfiguredPage(account) {
   const facebook = accounts.find((item) => item.platform === "Facebook");
   const instagram = accounts.find((item) => item.platform === "Instagram");
 
-  if (facebook) {
+  const { isPlatformOpen } = require("./socialPlatformGateService");
+  if (facebook && (await isPlatformOpen("Facebook"))) {
     await saveCredentials(facebook.id, stored);
     await SocialAccount.connect(facebook.id, {
       accountName: page.pageName,
@@ -156,7 +157,7 @@ async function connectConfiguredPage(account) {
     });
   }
 
-  if (instagram && page.instagramId) {
+  if (instagram && page.instagramId && (await isPlatformOpen("Instagram"))) {
     await saveCredentials(instagram.id, stored);
     await SocialAccount.connect(instagram.id, {
       accountName: page.instagramUsername || page.pageName,

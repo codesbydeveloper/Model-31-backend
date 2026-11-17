@@ -9,7 +9,16 @@ const {
   registerInboundWebhook,
 } = require("./smsCarrierService");
 
+function smsStatusOf(row) {
+  if (!row?.sms_provider || !row?.sms_phone_number) return null;
+  return String(row.sms_status || "CONNECTED").toUpperCase() === "DISCONNECTED"
+    ? "DISCONNECTED"
+    : "CONNECTED";
+}
+
 function publicAccount(row, extra = {}) {
+  const status = smsStatusOf(row);
+  const connected = status === "CONNECTED";
   return {
     providerType: row.sms_provider,
     accountSid: row.sms_account_sid || "",
@@ -17,7 +26,13 @@ function publicAccount(row, extra = {}) {
     timezone: row.timezone || "America/New_York",
     carrierProfileId: row.sms_profile_id || null,
     hasAuthToken: Boolean(row.sms_auth_token),
-    connected: true,
+    status,
+    connected,
+    lastUpdated: row.updated_at || null,
+    canConnect: status === "DISCONNECTED",
+    canDisconnect: connected,
+    canEdit: true,
+    canDelete: true,
     ...extra,
   };
 }
@@ -25,7 +40,7 @@ function publicAccount(row, extra = {}) {
 async function loadRow(dealershipId) {
   const [rows] = await pool.query(
     `SELECT id, name, timezone, sms_provider, sms_account_sid, sms_auth_token,
-            sms_phone_number, sms_profile_id
+            sms_phone_number, sms_profile_id, sms_status, updated_at
      FROM dealerships
      WHERE id = ?
      LIMIT 1`,
@@ -102,6 +117,7 @@ async function saveSmsAccount(dealershipId, body) {
          sms_auth_token = COALESCE(?, sms_auth_token),
          sms_phone_number = ?,
          sms_profile_id = ?,
+         sms_status = 'CONNECTED',
          timezone = ?
      WHERE id = ?`,
     [providerType, accountSid, encryptedToken, phoneNumber, carrierProfileId, timezone, dealershipId]
@@ -130,4 +146,66 @@ async function saveSmsAccount(dealershipId, body) {
   return publicAccount(saved, webhook);
 }
 
-module.exports = { getSmsAccount, saveSmsAccount, loadRow };
+function assertSavedAccount(row) {
+  if (!row) throw new AppError("Dealership not found", 404);
+  if (!row.sms_provider || !row.sms_phone_number) {
+    throw new AppError("No text account is saved", 404);
+  }
+  return row;
+}
+
+async function disconnectSmsAccount(dealershipId) {
+  const row = assertSavedAccount(await loadRow(dealershipId));
+  if (smsStatusOf(row) === "DISCONNECTED") {
+    throw new AppError("Text account is already disconnected", 400);
+  }
+  await pool.query(
+    `UPDATE dealerships SET sms_status = 'DISCONNECTED' WHERE id = ?`,
+    [dealershipId]
+  );
+  return publicAccount(await loadRow(dealershipId), {
+    message: "Text account disconnected. Keys are saved. Connect again to resume texts.",
+  });
+}
+
+async function connectSmsAccount(dealershipId) {
+  const row = assertSavedAccount(await loadRow(dealershipId));
+  if (smsStatusOf(row) === "CONNECTED") {
+    throw new AppError("Text account is already connected", 400);
+  }
+  await pool.query(
+    `UPDATE dealerships SET sms_status = 'CONNECTED' WHERE id = ?`,
+    [dealershipId]
+  );
+  return publicAccount(await loadRow(dealershipId), {
+    message: "Text account connected.",
+  });
+}
+
+async function deleteSmsAccount(dealershipId) {
+  assertSavedAccount(await loadRow(dealershipId));
+  await pool.query(
+    `UPDATE dealerships
+     SET sms_provider = NULL,
+         sms_account_sid = NULL,
+         sms_auth_token = NULL,
+         sms_phone_number = NULL,
+         sms_profile_id = NULL,
+         sms_status = NULL
+     WHERE id = ?`,
+    [dealershipId]
+  );
+  return {
+    connected: false,
+    message: "Text account deleted.",
+  };
+}
+
+module.exports = {
+  getSmsAccount,
+  saveSmsAccount,
+  disconnectSmsAccount,
+  connectSmsAccount,
+  deleteSmsAccount,
+  loadRow,
+};
