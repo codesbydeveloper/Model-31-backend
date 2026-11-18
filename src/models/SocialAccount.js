@@ -144,7 +144,7 @@ async function create(data) {
       data.platform,
       data.accountName,
       data.ownerName || null,
-      data.status || "CONNECTED",
+      data.status || "DISCONNECTED",
       toOnOff(data.model31Source, "OFF"),
       data.environment || "Production",
       toBool(data.postingEnabled, true) ? 1 : 0,
@@ -257,6 +257,16 @@ async function disconnect(id) {
   return findById(id);
 }
 
+async function hasConnected(platform) {
+  const [rows] = await pool.query(
+    `SELECT id FROM social_accounts
+     WHERE platform = ? AND status = 'CONNECTED'
+     LIMIT 1`,
+    [platform]
+  );
+  return Boolean(rows[0]);
+}
+
 async function disconnectByPlatform(platform) {
   await pool.query(
     `UPDATE social_accounts
@@ -276,6 +286,7 @@ module.exports = {
   updateStats,
   disconnect,
   disconnectByPlatform,
+  hasConnected,
   mapCard,
   toOnOff,
   toBool,

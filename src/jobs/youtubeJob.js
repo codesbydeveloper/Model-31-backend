@@ -1,7 +1,9 @@
 const { checkYouTubeComments } = require("../services/youtubeService");
+const SocialAccount = require("../models/SocialAccount");
 
-const TEN_MINUTES_MS = 10 * 60 * 1000;
+const FIVE_MINUTES_MS = 5 * 60 * 1000;
 let started = false;
+let missingKeysLogged = false;
 
 function youtubeConfigured() {
   return Boolean(
@@ -14,19 +16,27 @@ function youtubeConfigured() {
 
 function startYouTubeJob() {
   if (started) return;
-  if (!youtubeConfigured()) {
-    console.log(
-      "YouTube comments are not configured. Set YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN, and YOUTUBE_CHANNEL_ID."
-    );
-    return;
-  }
   started = true;
-  console.log("Checking YouTube comments...");
-  checkYouTubeComments();
-  setInterval(() => {
+
+  const tick = async () => {
+    if (!(await SocialAccount.hasConnected("YouTube"))) return;
+    if (!youtubeConfigured()) {
+      if (!missingKeysLogged) {
+        missingKeysLogged = true;
+        console.log(
+          "YouTube is connected for a dealership, but the server keys are missing. Set YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET, YOUTUBE_REFRESH_TOKEN, and YOUTUBE_CHANNEL_ID."
+        );
+      }
+      return;
+    }
     console.log("Checking YouTube comments...");
-    checkYouTubeComments();
-  }, TEN_MINUTES_MS);
+    await checkYouTubeComments();
+  };
+
+  tick().catch((err) => console.error("YouTube check failed:", err.message));
+  setInterval(() => {
+    tick().catch((err) => console.error("YouTube check failed:", err.message));
+  }, FIVE_MINUTES_MS);
 }
 
 module.exports = { startYouTubeJob };

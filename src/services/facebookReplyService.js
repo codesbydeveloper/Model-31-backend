@@ -1,7 +1,6 @@
 const { randomUUID } = require("crypto");
 const pool = require("../config/database");
 const Lead = require("../models/Lead");
-const Dealership = require("../models/Dealership");
 const {
   INVOICE_FLOOR_RULES,
   formatInventoryList,
@@ -181,9 +180,7 @@ async function dealershipIdForPage() {
      WHERE platform = 'Facebook' AND status = 'CONNECTED'
      ORDER BY updated_at DESC LIMIT 1`
   );
-  if (rows[0]?.dealership_id) return rows[0].dealership_id;
-  const options = await Dealership.listAllOptions();
-  return options[0]?.id || null;
+  return rows[0]?.dealership_id || null;
 }
 
 async function sendFacebookReplyToLead(leadId, text) {
@@ -729,9 +726,17 @@ function handleWhatsAppPayload(body = {}) {
   return Promise.all(tasks);
 }
 
-function handleWebhookPayload(body = {}) {
-  if (body.object === "whatsapp_business_account") return handleWhatsAppPayload(body);
-  if (body.object === "instagram") return handleInstagramPayload(body);
+async function handleWebhookPayload(body = {}) {
+  const SocialAccount = require("../models/SocialAccount");
+  if (body.object === "whatsapp_business_account") {
+    if (!(await SocialAccount.hasConnected("WhatsApp"))) return;
+    return handleWhatsAppPayload(body);
+  }
+  if (body.object === "instagram") {
+    if (!(await SocialAccount.hasConnected("Instagram"))) return;
+    return handleInstagramPayload(body);
+  }
+  if (!(await SocialAccount.hasConnected("Facebook"))) return;
   if (body.object !== "page" || !Array.isArray(body.entry)) return;
   const tasks = [];
   for (const entry of body.entry) {

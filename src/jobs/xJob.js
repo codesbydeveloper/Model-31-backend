@@ -1,7 +1,9 @@
 const { checkX } = require("../services/xService");
+const SocialAccount = require("../models/SocialAccount");
 
 const TWO_MINUTES_MS = 2 * 60 * 1000;
 let started = false;
+let missingKeysLogged = false;
 
 function xConfigured() {
   return Boolean(
@@ -14,18 +16,26 @@ function xConfigured() {
 
 function startXJob() {
   if (started) return;
-  if (!xConfigured()) {
-    console.log(
-      "X is not configured. Set X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, and X_ACCESS_SECRET."
-    );
-    return;
-  }
   started = true;
-  console.log("Checking X mentions and DMs...");
-  checkX();
-  setInterval(() => {
+
+  const tick = async () => {
+    if (!(await SocialAccount.hasConnected("X"))) return;
+    if (!xConfigured()) {
+      if (!missingKeysLogged) {
+        missingKeysLogged = true;
+        console.log(
+          "X is connected for a dealership, but the server keys are missing. Set X_API_KEY, X_API_SECRET, X_ACCESS_TOKEN, and X_ACCESS_SECRET."
+        );
+      }
+      return;
+    }
     console.log("Checking X mentions and DMs...");
-    checkX();
+    await checkX();
+  };
+
+  tick().catch((err) => console.error("X check failed:", err.message));
+  setInterval(() => {
+    tick().catch((err) => console.error("X check failed:", err.message));
   }, TWO_MINUTES_MS);
 }
 

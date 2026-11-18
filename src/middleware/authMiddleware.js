@@ -107,6 +107,20 @@ function requireInventoryManager(req, res, next) {
   next();
 }
 
+function requireDealershipInventoryRead(req, res, next) {
+  const { DEALERSHIP_PORTAL_ROLES } = require("../utils/constants");
+  const role = req.user?.role;
+  const allowed = role === "Inventory Manager" || DEALERSHIP_PORTAL_ROLES.includes(role);
+  if (!req.user || !allowed) {
+    return error(res, "Inventory access required", 403);
+  }
+  if (!req.user.dealershipId) {
+    return error(res, "No dealership assigned to this account", 403);
+  }
+  req.dealershipId = req.user.dealershipId;
+  next();
+}
+
 module.exports = {
   authMiddleware,
   requireSuperAdmin,
@@ -117,4 +131,5 @@ module.exports = {
   requireServiceAdvisor,
   requireServiceManager,
   requireInventoryManager,
+  requireDealershipInventoryRead,
 };

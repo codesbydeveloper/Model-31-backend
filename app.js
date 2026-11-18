@@ -49,6 +49,7 @@ const { startSmsJob } = require("./src/jobs/smsJob");
 const { handleSmsWebhook } = require("./src/services/smsInboundService");
 const { startYouTubeJob } = require("./src/jobs/youtubeJob");
 const { startXJob } = require("./src/jobs/xJob");
+const SocialAccount = require("./src/models/SocialAccount");
 const errorHandler = require("./src/middleware/errorHandler");
 const { error } = require("./src/utils/response");
 
@@ -180,14 +181,20 @@ async function start() {
     }
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`Server running on port ${PORT}`);
-      subscribePageEvents()
-        .catch((err) => {
-          console.error("Facebook message subscription failed:", err.message);
-        })
-        .then(() => replyToRecentComments())
-        .catch((err) => {
-          console.error("Recent Facebook comments were not checked:", err.message);
+      const checkFacebook = async () => {
+        if (!(await SocialAccount.hasConnected("Facebook"))) return;
+        console.log("Checking Facebook comments...");
+        await subscribePageEvents();
+        await replyToRecentComments();
+      };
+      checkFacebook().catch((err) => {
+        console.error("Facebook check failed:", err.message);
+      });
+      setInterval(() => {
+        checkFacebook().catch((err) => {
+          console.error("Facebook check failed:", err.message);
         });
+      }, 2 * 60 * 1000);
     });
   } catch (err) {
     console.error("Database connection failed. Check DB_HOST, DB_NAME, DB_USER, and DB_PASSWORD.");

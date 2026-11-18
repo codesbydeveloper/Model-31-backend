@@ -4,15 +4,17 @@ const { vehicleImageUpload } = require("../middleware/vehicleImageUpload");
 const {
   authMiddleware,
   requireInventoryManager,
+  requireDealershipInventoryRead,
 } = require("../middleware/authMiddleware");
 
 const router = express.Router();
+
+router.get("/inventory", authMiddleware, requireDealershipInventoryRead, ctrl.listInventory);
 
 router.use(authMiddleware, requireInventoryManager);
 
 router.get("/dashboard", ctrl.dashboard);
 
-router.get("/inventory", ctrl.listInventory);
 router.post("/inventory", vehicleImageUpload, ctrl.createVehicle);
 router.get("/inventory/:id", ctrl.getVehicle);
 router.patch("/inventory/:id", vehicleImageUpload, ctrl.updateVehicle);

@@ -2,7 +2,6 @@ const { randomUUID } = require("crypto");
 const { TwitterApi } = require("twitter-api-v2");
 const pool = require("../config/database");
 const Lead = require("../models/Lead");
-const Dealership = require("../models/Dealership");
 const {
   INVOICE_FLOOR_RULES,
   formatInventoryList,
@@ -105,12 +104,10 @@ async function getMyId() {
 async function dealershipId() {
   const [rows] = await pool.query(
     `SELECT dealership_id FROM social_accounts
-     WHERE platform = 'Facebook' AND status = 'CONNECTED'
+     WHERE platform = 'X' AND status = 'CONNECTED'
      ORDER BY updated_at DESC LIMIT 1`
   );
-  if (rows[0]?.dealership_id) return rows[0].dealership_id;
-  const options = await Dealership.listAllOptions();
-  return options[0]?.id || null;
+  return rows[0]?.dealership_id || null;
 }
 
 async function inventoryLines() {

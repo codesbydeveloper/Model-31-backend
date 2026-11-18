@@ -1,13 +1,17 @@
 const pool = require("../config/database");
 const AppError = require("../utils/AppError");
-const { encryptToken } = require("../utils/tokenCrypto");
+const { encryptToken, decryptToken } = require("../utils/tokenCrypto");
 const { normalizePhone } = require("../utils/smsPhone");
 const {
   PROVIDERS,
   canonicalProvider,
   publicWebhookUrl,
   registerInboundWebhook,
+  sendSms,
 } = require("./smsCarrierService");
+
+const ALERT_CELL_LABEL = "Cell phone for buyer arrival alerts";
+const CONNECT_TEST_TEXT = "Model 31 is connected. You'll get lot-arrival alerts here.";
 
 function smsStatusOf(row) {
   if (!row?.sms_provider || !row?.sms_phone_number) return null;
@@ -23,6 +27,8 @@ function publicAccount(row, extra = {}) {
     providerType: row.sms_provider,
     accountSid: row.sms_account_sid || "",
     phoneNumber: row.sms_phone_number || "",
+    managerMobile: row.sms_manager_mobile || "",
+    managerMobileLabel: ALERT_CELL_LABEL,
     timezone: row.timezone || "America/New_York",
     carrierProfileId: row.sms_profile_id || null,
     hasAuthToken: Boolean(row.sms_auth_token),
@@ -40,7 +46,7 @@ function publicAccount(row, extra = {}) {
 async function loadRow(dealershipId) {
   const [rows] = await pool.query(
     `SELECT id, name, timezone, sms_provider, sms_account_sid, sms_auth_token,
-            sms_phone_number, sms_profile_id, sms_status, updated_at
+            sms_phone_number, sms_manager_mobile, sms_profile_id, sms_status, updated_at
      FROM dealerships
      WHERE id = ?
      LIMIT 1`,
@@ -49,10 +55,75 @@ async function loadRow(dealershipId) {
   return rows[0] || null;
 }
 
+function readManagerMobile(body, current) {
+  const raw =
+    body.managerMobile !== undefined
+      ? body.managerMobile
+      : body.managerPhone !== undefined
+        ? body.managerPhone
+        : body.alertPhone !== undefined
+          ? body.alertPhone
+          : body.cellPhone;
+  if (raw === undefined) return current?.sms_manager_mobile || "";
+  return normalizePhone(raw);
+}
+
+function requireManagerMobile(phone, dealershipPhone) {
+  if (!phone) {
+    throw new AppError(`${ALERT_CELL_LABEL} is required`, 400);
+  }
+  if (dealershipPhone && phone === dealershipPhone) {
+    throw new AppError(
+      `${ALERT_CELL_LABEL} must be a personal cell, not the dealership phone`,
+      400
+    );
+  }
+  return phone;
+}
+
+async function sendConnectTest(row, plainToken) {
+  const to = row.sms_manager_mobile;
+  if (!to) return { alertSent: false, alertMessage: `${ALERT_CELL_LABEL} is required` };
+  let authToken = plainToken || "";
+  if (!authToken) {
+    try {
+      authToken = decryptToken(row.sms_auth_token);
+    } catch (err) {
+      return { alertSent: false, alertMessage: err.message || "Saved SMS secret could not be read" };
+    }
+  }
+  if (!authToken) {
+    return { alertSent: false, alertMessage: "Secret key is required to send the test text" };
+  }
+  try {
+    await sendSms(
+      {
+        providerType: row.sms_provider,
+        accountSid: row.sms_account_sid,
+        authToken,
+        phoneNumber: row.sms_phone_number,
+        carrierProfileId: row.sms_profile_id || null,
+      },
+      { to, body: CONNECT_TEST_TEXT }
+    );
+    console.log(`[SMS] ${row.name}: connect test sent to ${to}.`);
+    return { alertSent: true, alertMessage: `Test text sent to ${to}.` };
+  } catch (err) {
+    console.error(`[SMS] ${row.name}: connect test failed:`, err.message);
+    return { alertSent: false, alertMessage: err.message || "The test text could not be sent" };
+  }
+}
+
 async function getSmsAccount(dealershipId) {
   const row = await loadRow(dealershipId);
   if (!row) throw new AppError("Dealership not found", 404);
-  if (!row.sms_provider || !row.sms_phone_number) return null;
+  if (!row.sms_provider || !row.sms_phone_number) {
+    return {
+      connected: false,
+      managerMobile: row.sms_manager_mobile || "",
+      managerMobileLabel: ALERT_CELL_LABEL,
+    };
+  }
   return publicAccount(row);
 }
 
@@ -73,6 +144,8 @@ async function saveSmsAccount(dealershipId, body) {
   if (!phoneNumber) {
     throw new AppError("Phone number must be a valid number, like +13051112222", 400);
   }
+
+  const managerMobile = requireManagerMobile(readManagerMobile(body, current), phoneNumber);
 
   const timezone = String(body.timezone || "").trim();
   if (!timezone) throw new AppError("Timezone is required", 400);
@@ -116,11 +189,21 @@ async function saveSmsAccount(dealershipId, body) {
          sms_account_sid = ?,
          sms_auth_token = COALESCE(?, sms_auth_token),
          sms_phone_number = ?,
+         sms_manager_mobile = ?,
          sms_profile_id = ?,
          sms_status = 'CONNECTED',
          timezone = ?
      WHERE id = ?`,
-    [providerType, accountSid, encryptedToken, phoneNumber, carrierProfileId, timezone, dealershipId]
+    [
+      providerType,
+      accountSid,
+      encryptedToken,
+      phoneNumber,
+      managerMobile,
+      carrierProfileId,
+      timezone,
+      dealershipId,
+    ]
   );
 
   const saved = await loadRow(dealershipId);
@@ -143,7 +226,9 @@ async function saveSmsAccount(dealershipId, body) {
     );
   }
 
-  return publicAccount(saved, webhook);
+  const alert = await sendConnectTest(saved, plainToken);
+
+  return publicAccount(saved, { ...webhook, ...alert });
 }
 
 function assertSavedAccount(row) {
@@ -173,12 +258,16 @@ async function connectSmsAccount(dealershipId) {
   if (smsStatusOf(row) === "CONNECTED") {
     throw new AppError("Text account is already connected", 400);
   }
+  requireManagerMobile(row.sms_manager_mobile || "", row.sms_phone_number);
   await pool.query(
     `UPDATE dealerships SET sms_status = 'CONNECTED' WHERE id = ?`,
     [dealershipId]
   );
-  return publicAccount(await loadRow(dealershipId), {
+  const saved = await loadRow(dealershipId);
+  const alert = await sendConnectTest(saved);
+  return publicAccount(saved, {
     message: "Text account connected.",
+    ...alert,
   });
 }
 
@@ -190,6 +279,7 @@ async function deleteSmsAccount(dealershipId) {
          sms_account_sid = NULL,
          sms_auth_token = NULL,
          sms_phone_number = NULL,
+         sms_manager_mobile = NULL,
          sms_profile_id = NULL,
          sms_status = NULL
      WHERE id = ?`,
