@@ -1,4 +1,5 @@
 const svc = require("../services/inventoryManagerService");
+const bdcLeadManagerService = require("../services/bdcLeadManagerService");
 const { success } = require("../utils/response");
 
 async function dashboard(req, res, next) {
@@ -12,6 +13,14 @@ async function dashboard(req, res, next) {
 async function listInventory(req, res, next) {
   try {
     return success(res, await svc.listInventory(req.dealershipId, req.query));
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function uploadInventoryCsv(req, res, next) {
+  try {
+    return success(res, await bdcLeadManagerService.uploadInventory(req.dealershipId, req.file));
   } catch (err) {
     next(err);
   }
@@ -74,6 +83,7 @@ async function updateVehicle(req, res, next) {
 module.exports = {
   dashboard,
   listInventory,
+  uploadInventoryCsv,
   listNeedsPhotos,
   getVehicle,
   createVehicle,

@@ -1,6 +1,7 @@
 const express = require("express");
 const ctrl = require("../controllers/inventoryManagerController");
 const { vehicleImageUpload } = require("../middleware/vehicleImageUpload");
+const { csvUpload } = require("../middleware/csvUpload");
 const {
   authMiddleware,
   requireInventoryManager,
@@ -10,6 +11,13 @@ const {
 const router = express.Router();
 
 router.get("/inventory", authMiddleware, requireDealershipInventoryRead, ctrl.listInventory);
+router.post(
+  "/inventory/upload",
+  authMiddleware,
+  requireDealershipInventoryRead,
+  csvUpload,
+  ctrl.uploadInventoryCsv
+);
 
 router.use(authMiddleware, requireInventoryManager);
 

@@ -11,7 +11,9 @@ const {
 } = require("./smsCarrierService");
 
 const ALERT_CELL_LABEL = "Cell phone for buyer arrival alerts";
+const ALERT_EMAIL_LABEL = "Manager email for deal sheets";
 const CONNECT_TEST_TEXT = "Model 31 is connected. You'll get lot-arrival alerts here.";
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function smsStatusOf(row) {
   if (!row?.sms_provider || !row?.sms_phone_number) return null;
@@ -29,6 +31,8 @@ function publicAccount(row, extra = {}) {
     phoneNumber: row.sms_phone_number || "",
     managerMobile: row.sms_manager_mobile || "",
     managerMobileLabel: ALERT_CELL_LABEL,
+    managerEmail: row.sms_manager_email || "",
+    managerEmailLabel: ALERT_EMAIL_LABEL,
     timezone: row.timezone || "America/New_York",
     carrierProfileId: row.sms_profile_id || null,
     hasAuthToken: Boolean(row.sms_auth_token),
@@ -46,7 +50,7 @@ function publicAccount(row, extra = {}) {
 async function loadRow(dealershipId) {
   const [rows] = await pool.query(
     `SELECT id, name, timezone, sms_provider, sms_account_sid, sms_auth_token,
-            sms_phone_number, sms_manager_mobile, sms_profile_id, sms_status, updated_at
+            sms_phone_number, sms_manager_mobile, sms_manager_email, sms_profile_id, sms_status, updated_at
      FROM dealerships
      WHERE id = ?
      LIMIT 1`,
@@ -79,6 +83,22 @@ function requireManagerMobile(phone, dealershipPhone) {
     );
   }
   return phone;
+}
+
+function readManagerEmail(body, current) {
+  const raw = body.managerEmail !== undefined ? body.managerEmail : body.email;
+  if (raw === undefined) return String(current?.sms_manager_email || "").trim();
+  return String(raw || "").trim();
+}
+
+function requireManagerEmail(email) {
+  if (!email) {
+    throw new AppError(`${ALERT_EMAIL_LABEL} is required`, 400);
+  }
+  if (email.length > 191 || !EMAIL_PATTERN.test(email)) {
+    throw new AppError("Manager email must be a valid email address", 400);
+  }
+  return email;
 }
 
 async function sendConnectTest(row, plainToken) {
@@ -122,6 +142,8 @@ async function getSmsAccount(dealershipId) {
       connected: false,
       managerMobile: row.sms_manager_mobile || "",
       managerMobileLabel: ALERT_CELL_LABEL,
+      managerEmail: row.sms_manager_email || "",
+      managerEmailLabel: ALERT_EMAIL_LABEL,
     };
   }
   return publicAccount(row);
@@ -146,6 +168,7 @@ async function saveSmsAccount(dealershipId, body) {
   }
 
   const managerMobile = requireManagerMobile(readManagerMobile(body, current), phoneNumber);
+  const managerEmail = requireManagerEmail(readManagerEmail(body, current));
 
   const timezone = String(body.timezone || "").trim();
   if (!timezone) throw new AppError("Timezone is required", 400);
@@ -190,6 +213,7 @@ async function saveSmsAccount(dealershipId, body) {
          sms_auth_token = COALESCE(?, sms_auth_token),
          sms_phone_number = ?,
          sms_manager_mobile = ?,
+         sms_manager_email = ?,
          sms_profile_id = ?,
          sms_status = 'CONNECTED',
          timezone = ?
@@ -200,6 +224,7 @@ async function saveSmsAccount(dealershipId, body) {
       encryptedToken,
       phoneNumber,
       managerMobile,
+      managerEmail,
       carrierProfileId,
       timezone,
       dealershipId,
@@ -259,6 +284,7 @@ async function connectSmsAccount(dealershipId) {
     throw new AppError("Text account is already connected", 400);
   }
   requireManagerMobile(row.sms_manager_mobile || "", row.sms_phone_number);
+  requireManagerEmail(row.sms_manager_email || "");
   await pool.query(
     `UPDATE dealerships SET sms_status = 'CONNECTED' WHERE id = ?`,
     [dealershipId]
@@ -280,6 +306,7 @@ async function deleteSmsAccount(dealershipId) {
          sms_auth_token = NULL,
          sms_phone_number = NULL,
          sms_manager_mobile = NULL,
+         sms_manager_email = NULL,
          sms_profile_id = NULL,
          sms_status = NULL
      WHERE id = ?`,

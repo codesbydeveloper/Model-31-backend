@@ -120,7 +120,7 @@ async function inventoryLines() {
       params.push(id);
     }
     const [rows] = await pool.query(
-      `SELECT year, make, model, vehicle, price, min_price
+      `SELECT year, make, model, trim, mileage, color, vin, stock_number, vehicle, price, min_price
        FROM merchandising_vehicles
        ${where}
        ORDER BY updated_at DESC

@@ -29,6 +29,7 @@ function mapRow(row) {
     customerPhone: row.customer_phone || "",
     customerEmail: row.customer_email || "",
     vehicle: row.vehicle || "",
+    tradeIn: row.trade_in || "",
     budget: row.budget || "",
     timeline: row.timeline || "",
     location: row.location || "",
@@ -70,6 +71,15 @@ const SELECT_LIST = `
 async function findById(id) {
   if (!id) return null;
   const [rows] = await pool.query(`${SELECT_LIST} WHERE l.id = ? LIMIT 1`, [id]);
+  return mapRow(rows[0]);
+}
+
+async function findByPhone(dealershipId, phone) {
+  if (!dealershipId || !phone) return null;
+  const [rows] = await pool.query(
+    `${SELECT_LIST} WHERE l.dealership_id = ? AND l.customer_phone = ? LIMIT 1`,
+    [dealershipId, phone]
+  );
   return mapRow(rows[0]);
 }
 
@@ -190,16 +200,17 @@ async function create(data) {
   const id = data.id || `lead_${randomUUID().slice(0, 8)}`;
   await pool.query(
     `INSERT INTO leads
-      (id, customer_name, customer_phone, customer_email, vehicle, budget, timeline,
+      (id, customer_name, customer_phone, customer_email, vehicle, trade_in, budget, timeline,
        location, financing, score, tier, status, dealership_id, salesperson_id,
        source, pipeline, notes)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       data.customerName,
       data.customerPhone || null,
       data.customerEmail || null,
       data.vehicle || null,
+      data.tradeIn || null,
       data.budget || null,
       data.timeline || null,
       data.location || null,
@@ -224,6 +235,7 @@ async function update(id, data) {
       customer_phone = ?,
       customer_email = ?,
       vehicle = ?,
+      trade_in = ?,
       budget = ?,
       timeline = ?,
       location = ?,
@@ -242,6 +254,7 @@ async function update(id, data) {
       data.customerPhone || null,
       data.customerEmail || null,
       data.vehicle || null,
+      data.tradeIn || null,
       data.budget || null,
       data.timeline || null,
       data.location || null,
@@ -372,6 +385,7 @@ async function listQueue({ search = "", page = 1, limit = 10 } = {}) {
 
 module.exports = {
   findById,
+  findByPhone,
   list,
   listQueue,
   listEscalations,

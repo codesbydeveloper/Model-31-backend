@@ -20,7 +20,7 @@ function youtubeClient() {
 async function inventoryLines() {
   try {
     const [rows] = await pool.query(
-      `SELECT year, make, model, vehicle, price, min_price
+      `SELECT year, make, model, trim, mileage, color, vin, stock_number, vehicle, price, min_price
        FROM merchandising_vehicles
        ORDER BY updated_at DESC
        LIMIT 30`

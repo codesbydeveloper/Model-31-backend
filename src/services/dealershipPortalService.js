@@ -3,6 +3,7 @@ const User = require("../models/User");
 const Conversation = require("../models/Conversation");
 const SocialAccount = require("../models/SocialAccount");
 const DealershipCrm = require("../models/DealershipCrm");
+const bdcLeadManagerService = require("./bdcLeadManagerService");
 const AiContent = require("../models/AiContent");
 const DealershipSettings = require("../models/DealershipSettings");
 const Dealership = require("../models/Dealership");
@@ -198,7 +199,16 @@ async function listLeads(dealershipId, query) {
     }),
     Lead.getStats(dealershipId),
   ]);
-  return { ...result, stats };
+  return {
+    ...result,
+    leads: (result.leads || []).map((lead) => ({
+      ...lead,
+      vehicleInterest: lead.vehicle || "",
+      tradeIn: lead.tradeIn || "",
+      canMarkSold: String(lead.status || "").toUpperCase() !== "CLOSED",
+    })),
+    stats,
+  };
 }
 
 async function getLead(dealershipId, leadId) {
@@ -307,6 +317,8 @@ function smsAccountCard(sms) {
     status: connected ? "CONNECTED" : "DISCONNECTED",
     providerType: sms.providerType,
     phoneNumber: sms.phoneNumber,
+    managerMobile: sms.managerMobile || "",
+    managerEmail: sms.managerEmail || "",
     lastUpdated: sms.lastUpdated || null,
     canConnect: !connected,
     canDisconnect: connected,
@@ -363,10 +375,9 @@ async function disconnectSocialAccount(dealershipId, id) {
   return SocialAccount.disconnect(id);
 }
 
-async function getCrm(dealershipId) {
+async function getCrm(dealershipId, query = {}) {
   await getDealershipContext(dealershipId);
-  const crm = await DealershipCrm.ensureDefault(dealershipId);
-  return { crm };
+  return bdcLeadManagerService.getOverview(dealershipId, query);
 }
 
 async function syncCrm(dealershipId) {

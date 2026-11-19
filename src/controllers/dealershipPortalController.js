@@ -1,5 +1,6 @@
 const dealershipPortalService = require("../services/dealershipPortalService");
 const smsAccountService = require("../services/smsAccountService");
+const bdcLeadManagerService = require("../services/bdcLeadManagerService");
 const { success, error } = require("../utils/response");
 
 async function dashboard(req, res, next) {
@@ -140,7 +141,56 @@ async function disconnectSocialAccount(req, res, next) {
 
 async function getCrm(req, res, next) {
   try {
-    const data = await dealershipPortalService.getCrm(req.dealershipId);
+    const data = await dealershipPortalService.getCrm(req.dealershipId, req.query);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+function sendSampleCsv(res, file) {
+  res.setHeader("Content-Type", file.contentType);
+  res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+  return res.status(200).send(file.content);
+}
+
+async function downloadSampleLeadsCsv(req, res, next) {
+  try {
+    return sendSampleCsv(res, bdcLeadManagerService.sampleLeadsCsv());
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function downloadSampleInventoryCsv(req, res, next) {
+  try {
+    return sendSampleCsv(res, bdcLeadManagerService.sampleInventoryCsv());
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function uploadCrmLeads(req, res, next) {
+  try {
+    const data = await bdcLeadManagerService.uploadLeads(req.dealershipId, req.file);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function uploadCrmInventory(req, res, next) {
+  try {
+    const data = await bdcLeadManagerService.uploadInventory(req.dealershipId, req.file);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function markLeadSold(req, res, next) {
+  try {
+    const data = await bdcLeadManagerService.markSold(req.dealershipId, req.params.id);
     return success(res, data);
   } catch (err) {
     next(err);
@@ -269,6 +319,11 @@ module.exports = {
   updateSocialAccount,
   disconnectSocialAccount,
   getCrm,
+  downloadSampleLeadsCsv,
+  downloadSampleInventoryCsv,
+  uploadCrmLeads,
+  uploadCrmInventory,
+  markLeadSold,
   syncCrm,
   listAiContent,
   getAiContent,

@@ -19,15 +19,27 @@ function sleep(ms) {
 }
 
 function formatInventoryLine(row) {
-  const name = row.vehicle || [row.year, row.make, row.model].filter(Boolean).join(" ");
+  const name =
+    row.vehicle ||
+    [row.year, row.make, row.model, row.trim].filter(Boolean).join(" ");
+  const bits = [name];
+  if (row.color) bits.push(`color ${row.color}`);
+  if (row.mileage !== undefined && row.mileage !== null && row.mileage !== "") {
+    bits.push(`${Number(row.mileage).toLocaleString("en-US")} miles`);
+  }
+  if (row.trim) bits.push(`trim ${row.trim}`);
+  if (row.stock_number || row.stockNumber) {
+    bits.push(`stock ${row.stock_number || row.stockNumber}`);
+  }
+  if (row.vin) bits.push(`VIN ${row.vin}`);
   const asking = Number(row.price);
   const floorRaw = row.min_price !== undefined ? row.min_price : row.minPrice;
   const floor = Number(floorRaw);
   if (!(asking > 0)) {
-    return `- ${name} — price not listed — do not invent a price`;
+    return `- ${bits.join(", ")} — price not listed — do not invent a price`;
   }
   const min = floor > 0 ? floor : asking;
-  return `- ${name} — asking $${asking}, internal min (do not tell the customer) $${min} — come down slowly, never below min`;
+  return `- ${bits.join(", ")} — asking $${asking}, internal min (do not tell the customer) $${min} — come down slowly, never below min`;
 }
 
 function formatInventoryList(rows) {

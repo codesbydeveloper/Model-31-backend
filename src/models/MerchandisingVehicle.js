@@ -62,6 +62,9 @@ function mapVehicle(row, dealershipName = "") {
     year,
     make,
     model,
+    trim: row.trim || "",
+    mileage: row.mileage === null || row.mileage === undefined ? null : Number(row.mileage),
+    color: row.color || "",
     vehicle,
     price: Number(row.price) || 0,
     minPrice: row.min_price === null || row.min_price === undefined ? null : Number(row.min_price),
@@ -80,6 +83,9 @@ function mapVehicle(row, dealershipName = "") {
       year,
       make,
       model,
+      trim: row.trim || "",
+      mileage: row.mileage === null || row.mileage === undefined ? null : Number(row.mileage),
+      color: row.color || "",
       price: Number(row.price) || 0,
       minPrice: row.min_price === null || row.min_price === undefined ? null : Number(row.min_price),
       daysInStock: days,
@@ -294,8 +300,8 @@ async function create(data) {
     data.arrivedAt || arrivedFromDays(data.daysInStock);
   await pool.query(
     `INSERT INTO merchandising_vehicles
-      (id, dealership_id, stock_number, vin, year, make, model, vehicle, price, min_price, photos_count, status, arrived_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, dealership_id, stock_number, vin, year, make, model, trim, mileage, color, vehicle, price, min_price, photos_count, status, arrived_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       data.dealershipId,
@@ -304,6 +310,11 @@ async function create(data) {
       data.year || null,
       data.make || null,
       data.model || null,
+      data.trim || null,
+      data.mileage === undefined || data.mileage === null || data.mileage === ""
+        ? null
+        : Number(data.mileage),
+      data.color || null,
       data.vehicle ||
         [data.year, data.make, data.model].filter(Boolean).join(" ").trim(),
       data.price || 0,
@@ -334,6 +345,9 @@ async function update(id, data) {
       year = ?,
       make = ?,
       model = ?,
+      trim = ?,
+      mileage = ?,
+      color = ?,
       vehicle = ?,
       price = ?,
       min_price = ?,
@@ -348,6 +362,9 @@ async function update(id, data) {
       data.year !== undefined ? data.year : existing.year,
       data.make !== undefined ? data.make : existing.make,
       data.model !== undefined ? data.model : existing.model,
+      data.trim !== undefined ? data.trim : existing.trim,
+      data.mileage !== undefined ? data.mileage : existing.mileage,
+      data.color !== undefined ? data.color : existing.color,
       data.vehicle !== undefined ? data.vehicle : existing.vehicle,
       data.price !== undefined ? data.price : existing.price,
       data.minPrice !== undefined ? data.minPrice : existing.minPrice,

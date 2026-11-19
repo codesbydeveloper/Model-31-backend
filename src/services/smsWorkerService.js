@@ -101,7 +101,7 @@ async function optIn(dealershipId, phone) {
 async function inventoryLines(dealershipId) {
   try {
     const [rows] = await pool.query(
-      `SELECT year, make, model, vehicle, price, min_price
+      `SELECT year, make, model, trim, mileage, color, vin, stock_number, vehicle, price, min_price
        FROM merchandising_vehicles
        WHERE dealership_id = ?
        ORDER BY updated_at DESC
