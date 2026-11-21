@@ -44,6 +44,9 @@ function mapRow(row) {
     source: row.source || "",
     pipeline: row.pipeline,
     notes: row.notes || "",
+    onLot: Boolean(Number(row.on_lot)),
+    onLotAt: row.on_lot_at || null,
+    onLotBadge: Number(row.on_lot) ? "Customer on lot" : "",
     priority: row.priority || null,
     dispatchStatus: row.dispatch_status || null,
     assignedAt: row.assigned_at || null,
@@ -273,8 +276,44 @@ async function update(id, data) {
   return findById(id);
 }
 
+async function updateSalesFacts(id, data = {}) {
+  const current = await findById(id);
+  if (!current) return null;
+  await pool.query(
+    `UPDATE leads SET
+      trade_in = ?,
+      budget = ?,
+      timeline = ?,
+      vehicle = ?,
+      status = ?
+     WHERE id = ?`,
+    [
+      data.tradeIn !== undefined ? data.tradeIn : current.tradeIn || null,
+      data.budget !== undefined ? data.budget : current.budget || null,
+      data.timeline !== undefined ? data.timeline : current.timeline || null,
+      data.vehicle !== undefined ? data.vehicle : current.vehicle || null,
+      data.status !== undefined ? data.status : current.status,
+      id,
+    ]
+  );
+  return findById(id);
+}
+
 async function updateStatus(id, status) {
-  await pool.query(`UPDATE leads SET status = ? WHERE id = ?`, [status, id]);
+  if (String(status || "").toUpperCase() === "CLOSED") {
+    await pool.query(`UPDATE leads SET status = ?, on_lot = 0 WHERE id = ?`, [status, id]);
+  } else {
+    await pool.query(`UPDATE leads SET status = ? WHERE id = ?`, [status, id]);
+  }
+  return findById(id);
+}
+
+async function markOnLot(id, onLot = true) {
+  const flag = onLot ? 1 : 0;
+  await pool.query(
+    `UPDATE leads SET on_lot = ?, on_lot_at = IF(?, UTC_TIMESTAMP(), on_lot_at) WHERE id = ?`,
+    [flag, flag, id]
+  );
   return findById(id);
 }
 
@@ -392,7 +431,9 @@ module.exports = {
   getStats,
   create,
   update,
+  updateSalesFacts,
   updateStatus,
+  markOnLot,
   assignSalesperson,
   acceptAssignment,
   escalate,

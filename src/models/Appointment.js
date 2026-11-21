@@ -100,6 +100,29 @@ async function getStats(salespersonId) {
   };
 }
 
+async function findByLead(leadId) {
+  if (!leadId) return null;
+  const [rows] = await pool.query(
+    `${SELECT_LIST} WHERE a.lead_id = ? ORDER BY a.created_at DESC LIMIT 1`,
+    [leadId]
+  );
+  return mapRow(rows[0]);
+}
+
+async function slotTaken(dealershipId, date, time) {
+  if (!dealershipId || !date || !time) return false;
+  const [rows] = await pool.query(
+    `SELECT id FROM appointments
+     WHERE dealership_id = ?
+       AND appointment_date = ?
+       AND appointment_time = ?
+       AND status NOT IN ('CANCELLED', 'NO_SHOW')
+     LIMIT 1`,
+    [dealershipId, date, time]
+  );
+  return Boolean(rows[0]);
+}
+
 async function create(data) {
   const id = data.id || `appt_${randomUUID().slice(0, 8)}`;
   await pool.query(

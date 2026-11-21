@@ -41,6 +41,7 @@ async function getDashboard(user) {
     (l) => l.dispatchStatus === "ACCEPTED" || l.status === "CONTACTED"
   ).length;
   const todayLeads = myLeads.pagination.total;
+  const customersOnLot = myLeads.leads.filter((lead) => lead.onLot).length;
 
   const upcoming = await Appointment.listBySalesperson(salespersonId, {
     page: 1,
@@ -70,6 +71,7 @@ async function getDashboard(user) {
       declined: 0,
       appointments: appointmentStats.confirmed,
       pendingScripts: pendingScripts.pagination.total,
+      customersOnLot,
     },
     pendingScripts: pendingScripts.scripts,
     commissionSummary: {
@@ -267,12 +269,12 @@ async function markNotSold(salespersonId, leadId) {
 
 async function listConversations(salespersonId) {
   const [rows] = await pool.query(
-    `SELECT l.id, l.customer_name, l.vehicle, l.budget, l.timeline, l.status,
+    `SELECT l.id, l.customer_name, l.vehicle, l.budget, l.timeline, l.status, l.on_lot, l.on_lot_at,
       (SELECT message FROM conversation_messages cm
        WHERE cm.lead_id = l.id ORDER BY cm.created_at DESC LIMIT 1) AS last_message
      FROM leads l
      WHERE l.salesperson_id = ?
-     ORDER BY l.updated_at DESC`,
+     ORDER BY l.on_lot DESC, l.updated_at DESC`,
     [salespersonId]
   );
   return {
@@ -283,6 +285,9 @@ async function listConversations(salespersonId) {
       budget: row.budget || "",
       timeline: row.timeline || "",
       status: row.status,
+      onLot: Boolean(Number(row.on_lot)),
+      onLotAt: row.on_lot_at || null,
+      onLotBadge: Number(row.on_lot) ? "Customer on lot" : "",
       lastMessage: row.last_message || "",
     })),
   };

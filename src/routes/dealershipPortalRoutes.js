@@ -32,8 +32,11 @@ router.post("/social-accounts/:id/disconnect", ctrl.disconnectSocialAccount);
 router.get("/crm", ctrl.getCrm);
 router.get("/crm/leads/sample", ctrl.downloadSampleLeadsCsv);
 router.get("/crm/inventory/sample", ctrl.downloadSampleInventoryCsv);
+router.get("/crm/sold/sample", ctrl.downloadSampleSoldCsv);
 router.post("/crm/leads/upload", csvUpload, ctrl.uploadCrmLeads);
 router.post("/crm/inventory/upload", csvUpload, ctrl.uploadCrmInventory);
+router.post("/crm/sold/upload", csvUpload, ctrl.uploadCrmSold);
+router.get("/crm/sold", ctrl.listCrmSoldCharges);
 router.post("/crm/leads/:id/mark-sold", ctrl.markLeadSold);
 router.post("/crm/sync", ctrl.syncCrm);
 

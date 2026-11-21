@@ -94,12 +94,18 @@ async function getDashboard(dealershipId, query = {}) {
     [dealershipId]
   );
 
+  const [onLotRows] = await pool.query(
+    `SELECT COUNT(*) AS total FROM leads WHERE dealership_id = ? AND on_lot = 1`,
+    [dealershipId]
+  );
+
   const leadsToday = Number(cards.leads_today) || 0;
   const qualifiedLeads = Number(cards.qualified_leads) || 0;
   const assignedLeads = Number(cards.assigned_leads) || 0;
   const appointments = Number(appointmentRows[0]?.total) || 0;
   const soldDeals = Number(soldRows[0]?.sold_deals) || 0;
   const revenue = Number(soldRows[0]?.revenue) || 0;
+  const customersOnLot = Number(onLotRows[0]?.total) || 0;
 
   const [trendRows] = await pool.query(
     `SELECT
@@ -175,6 +181,7 @@ async function getDashboard(dealershipId, query = {}) {
       appointments,
       soldDeals,
       revenue,
+      customersOnLot,
     },
     leadTrend,
     leadSources,
@@ -235,22 +242,32 @@ async function assignLead(dealershipId, leadId, salespersonId) {
   return Lead.assignSalesperson(leadId, salespersonId || null);
 }
 
-async function listConversations(dealershipId) {
+async function listConversations(dealershipId, query = {}) {
   await getDealershipContext(dealershipId);
-  const conversations = await Conversation.listConversationLeads(dealershipId);
-  return { conversations };
+  const search = String(query.search || "").trim();
+  const conversations = await Conversation.listConversationLeads(dealershipId, search);
+  return { conversations, search };
 }
 
-async function getConversation(dealershipId, leadId) {
+async function getConversation(dealershipId, leadId, query = {}) {
   const lead = await assertLeadInDealership(leadId, dealershipId);
+  const search = String(query.search || "").trim();
   const { listFacebookMessagesForLead, messagesForConversation } = require("./facebookReplyService");
   const [localMessages, facebookMessages] = await Promise.all([
-    Conversation.listByLead(leadId),
+    Conversation.listByLead(leadId, search),
     listFacebookMessagesForLead(leadId),
   ]);
+  let messages = messagesForConversation(localMessages, facebookMessages);
+  if (search) {
+    const needle = search.toLowerCase();
+    messages = messages.filter((item) =>
+      String(item.message || "").toLowerCase().includes(needle)
+    );
+  }
   return {
     lead,
-    messages: messagesForConversation(localMessages, facebookMessages),
+    messages,
+    search,
   };
 }
 
@@ -386,10 +403,9 @@ async function syncCrm(dealershipId) {
   return { crm };
 }
 
-async function listAiContent(dealershipId) {
+async function listAiContent(dealershipId, query = {}) {
   await getDealershipContext(dealershipId);
-  const items = await AiContent.listByDealership(dealershipId);
-  return { items };
+  return AiContent.listByDealership(dealershipId, query);
 }
 
 async function getAiContent(dealershipId, id) {

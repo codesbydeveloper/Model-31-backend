@@ -152,16 +152,35 @@ async function list(query = {}) {
   };
 }
 
-async function listByDealership(dealershipId) {
+async function listByDealership(dealershipId, query = {}) {
+  const page = Math.max(1, Number(query.page) || 1);
+  const limit = Math.min(100, Math.max(1, Number(query.limit) || 10));
+  const offset = (page - 1) * limit;
+
+  const [countRows] = await pool.query(
+    `SELECT COUNT(*) AS total FROM ai_content c WHERE c.dealership_id = ?`,
+    [dealershipId]
+  );
   const [rows] = await pool.query(
     `SELECT c.*, d.name AS dealership_name
      FROM ai_content c
      LEFT JOIN dealerships d ON d.id = c.dealership_id
      WHERE c.dealership_id = ?
-     ORDER BY c.updated_at DESC`,
-    [dealershipId]
+     ORDER BY c.updated_at DESC
+     LIMIT ? OFFSET ?`,
+    [dealershipId, limit, offset]
   );
-  return rows.map(mapRow);
+
+  const total = Number(countRows[0]?.total) || 0;
+  return {
+    items: rows.map(mapRow),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit) || 1,
+    },
+  };
 }
 
 async function findById(id) {

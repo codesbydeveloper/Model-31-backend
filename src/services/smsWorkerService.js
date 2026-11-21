@@ -5,9 +5,12 @@ const { isQuietHours, nextOpenUtc, formatUtcSql } = require("../utils/dealerCloc
 const { sendSms } = require("./smsCarrierService");
 const {
   INVOICE_FLOOR_RULES,
+  SMS_SALES_PATH,
   formatInventoryList,
   finishSalesReply,
 } = require("../utils/aiSalesTalk");
+const { prepareSmsSalesTurn, rememberOfferedFromReply, salesPromptBlock } = require("./smsSalesFlow");
+const { handleHereArrival } = require("./smsHereService");
 
 let running = false;
 
@@ -19,6 +22,13 @@ function keywordOf(text) {
   if (["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"].includes(word)) return "STOP";
   if (["HELP", "INFO"].includes(word)) return "HELP";
   if (["START", "UNSTOP"].includes(word)) return "START";
+  if (["HERE", "IMHERE", "IAMHERE", "HERENOW"].includes(word)) return "HERE";
+  const first = String(text || "")
+    .trim()
+    .split(/\s+/)[0]
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  if (first === "HERE") return "HERE";
   return "";
 }
 
@@ -54,7 +64,7 @@ async function mark(id, status, lastError = null, sendAfter = null) {
 async function loadAccount(dealershipId) {
   const [rows] = await pool.query(
     `SELECT id, name, timezone, sms_provider, sms_account_sid, sms_auth_token,
-            sms_phone_number, sms_profile_id, sms_status
+            sms_phone_number, sms_manager_mobile, sms_manager_email, sms_profile_id, sms_status
      FROM dealerships
      WHERE id = ?
      LIMIT 1`,
@@ -71,6 +81,8 @@ async function loadAccount(dealershipId) {
     accountSid: row.sms_account_sid,
     authToken: decryptToken(row.sms_auth_token),
     phoneNumber: row.sms_phone_number,
+    managerMobile: row.sms_manager_mobile || "",
+    managerEmail: row.sms_manager_email || "",
     carrierProfileId: row.sms_profile_id || null,
     paused: String(row.sms_status || "CONNECTED").toUpperCase() === "DISCONNECTED",
   };
@@ -131,9 +143,14 @@ async function recentChat(leadId) {
     .join("\n");
 }
 
-async function aiReply({ dealershipName, text, inventory, chat }) {
+async function aiReply({ dealershipName, text, inventory, chat, sales }) {
   const apiKey = process.env.OPENAI_API_KEY;
-  const fallback = `Thanks for texting ${dealershipName}. Which vehicle are you asking about?`;
+  const fallback =
+    sales?.booked && sales?.offered
+      ? `You are booked for ${sales.offered.label}. See you then.`
+      : sales?.readyToOffer
+        ? "Want to come in for a visit during store hours?"
+        : `Thanks for texting ${dealershipName}. Which vehicle are you asking about?`;
   if (!apiKey) return fallback;
   try {
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -151,12 +168,17 @@ async function aiReply({ dealershipName, text, inventory, chat }) {
             content:
               `You reply to SMS messages for the car dealership ${dealershipName}. ` +
               INVOICE_FLOOR_RULES +
+              SMS_SALES_PATH +
               " Write 1 or 2 short sentences in plain text. Do not mention AI. " +
               "If they only greet you and no vehicle is named, ask which vehicle they want.",
           },
           {
             role: "user",
-            content: `Inventory:\n${inventory}\n\nRecent chat:\n${chat || "none"}\n\nNewest customer message: ${text}`,
+            content:
+              `Inventory:\n${inventory}\n\n` +
+              `Customer file:\n${salesPromptBlock(sales) || "none"}\n\n` +
+              `Recent chat:\n${chat || "none"}\n\n` +
+              `Newest customer message: ${text}`,
           },
         ],
       }),
@@ -187,6 +209,7 @@ async function sendAndRecord(message, account, text, { humanize = false } = {}) 
       senderType: "AI",
       message: outbound,
     });
+    await rememberOfferedFromReply(message.lead_id, outbound, account.timezone);
   }
   await mark(message.id, "sent");
 }
@@ -247,6 +270,13 @@ async function processOne() {
       return true;
     }
 
+    if (keyword === "HERE") {
+      const arrival = await handleHereArrival({ message, account });
+      await sendAndRecord(message, account, arrival.johnReply);
+      console.log(`[HERE] Arrival handled for message ${message.id}.`);
+      return true;
+    }
+
     if (await isOptedOut(account.dealershipId, message.from_number)) {
       await mark(message.id, "skipped", "Customer texted STOP");
       return true;
@@ -259,15 +289,22 @@ async function processOne() {
       return true;
     }
 
-    const [inventory, chat] = await Promise.all([
+    const [inventory, chat, sales] = await Promise.all([
       inventoryLines(account.dealershipId),
       recentChat(message.lead_id),
+      prepareSmsSalesTurn({
+        dealershipId: account.dealershipId,
+        timezone: account.timezone,
+        leadId: message.lead_id,
+        text: message.body,
+      }),
     ]);
     const reply = await aiReply({
       dealershipName: name,
       text: message.body,
       inventory,
       chat,
+      sales,
     });
     await sendAndRecord(message, account, reply, { humanize: true });
     console.log(`[SMS] Sent reply for message ${message.id}.`);

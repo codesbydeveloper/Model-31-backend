@@ -10,6 +10,17 @@ const INVOICE_FLOOR_RULES =
   "Read recent chat. If you already quoted a lower number, the next discount must be from that last quote, not from the original asking price. " +
   "Write the greeting yourself. Change how you open each time. Do not always start with Hi or Hello. Do not add [Ref:] or any tag.";
 
+const SMS_SALES_PATH =
+  "Follow this path, but use your own words. Do not copy a script. " +
+  "If you quote a real inventory price, ask in that same reply whether they have a trade-in. " +
+  "Do not ask for a trade-in again after they already answered, including if they said they have none. " +
+  "After trade-in is answered, suggest one visit time during store hours. Choose a time that makes sense. " +
+  "Do not always say Saturday at 11 AM. That was only an example. You may offer today, tomorrow, a weekday, or Saturday, as long as it is between 8:00 AM and 9:00 PM. " +
+  "Do not offer a time before open or after close. If they ask for a closed time, say the store is closed then and offer a time that is open. " +
+  "If they ask for a time that is still open, you may accept that time. " +
+  "If the customer file says the visit is already booked, only confirm that time. Do not offer a new time. " +
+  "If they have not given a vehicle yet, ask which vehicle they want before booking.";
+
 function randomInt(min, max) {
   return min + Math.floor(Math.random() * (max - min + 1));
 }
@@ -69,6 +80,7 @@ async function finishSalesReply(text, { maxLen = 320, label = "AI" } = {}) {
 
 module.exports = {
   INVOICE_FLOOR_RULES,
+  SMS_SALES_PATH,
   formatInventoryLine,
   formatInventoryList,
   humanizeSalesText,

@@ -67,4 +67,4 @@ function formatUtcSql(date) {
   return date.toISOString().slice(0, 19).replace("T", " ");
 }
 
-module.exports = { validZone, isQuietHours, nextOpenUtc, formatUtcSql };
+module.exports = { validZone, partsInZone, isQuietHours, nextOpenUtc, formatUtcSql };

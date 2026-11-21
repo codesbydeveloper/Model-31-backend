@@ -61,7 +61,10 @@ async function assignLead(req, res, next) {
 
 async function listConversations(req, res, next) {
   try {
-    const data = await dealershipPortalService.listConversations(req.dealershipId);
+    const data = await dealershipPortalService.listConversations(
+      req.dealershipId,
+      req.query
+    );
     return success(res, data);
   } catch (err) {
     next(err);
@@ -72,7 +75,8 @@ async function getConversation(req, res, next) {
   try {
     const data = await dealershipPortalService.getConversation(
       req.dealershipId,
-      req.params.leadId
+      req.params.leadId,
+      req.query
     );
     return success(res, data);
   } catch (err) {
@@ -170,6 +174,14 @@ async function downloadSampleInventoryCsv(req, res, next) {
   }
 }
 
+async function downloadSampleSoldCsv(req, res, next) {
+  try {
+    return sendSampleCsv(res, bdcLeadManagerService.sampleSoldCsv());
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function uploadCrmLeads(req, res, next) {
   try {
     const data = await bdcLeadManagerService.uploadLeads(req.dealershipId, req.file);
@@ -182,6 +194,24 @@ async function uploadCrmLeads(req, res, next) {
 async function uploadCrmInventory(req, res, next) {
   try {
     const data = await bdcLeadManagerService.uploadInventory(req.dealershipId, req.file);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function uploadCrmSold(req, res, next) {
+  try {
+    const data = await bdcLeadManagerService.uploadSold(req.dealershipId, req.file);
+    return success(res, data);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function listCrmSoldCharges(req, res, next) {
+  try {
+    const data = await bdcLeadManagerService.listCharges(req.dealershipId, req.query);
     return success(res, data);
   } catch (err) {
     next(err);
@@ -208,7 +238,10 @@ async function syncCrm(req, res, next) {
 
 async function listAiContent(req, res, next) {
   try {
-    const data = await dealershipPortalService.listAiContent(req.dealershipId);
+    const data = await dealershipPortalService.listAiContent(
+      req.dealershipId,
+      req.query
+    );
     return success(res, data);
   } catch (err) {
     next(err);
@@ -321,8 +354,11 @@ module.exports = {
   getCrm,
   downloadSampleLeadsCsv,
   downloadSampleInventoryCsv,
+  downloadSampleSoldCsv,
   uploadCrmLeads,
   uploadCrmInventory,
+  uploadCrmSold,
+  listCrmSoldCharges,
   markLeadSold,
   syncCrm,
   listAiContent,

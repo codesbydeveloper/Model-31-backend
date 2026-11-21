@@ -238,13 +238,13 @@ async function escalateLead(leadId, body = {}) {
 async function listConversations() {
   const [rows] = await pool.query(
     `SELECT l.id, l.customer_name, l.vehicle, l.score, l.tier, l.dispatch_status,
-      l.salesperson_id, u.name AS salesperson_name, l.updated_at,
+      l.salesperson_id, u.name AS salesperson_name, l.updated_at, l.on_lot, l.on_lot_at,
       (SELECT message FROM conversation_messages cm
        WHERE cm.lead_id = l.id ORDER BY cm.created_at DESC LIMIT 1) AS last_message
      FROM leads l
      LEFT JOIN users u ON u.id = l.salesperson_id
      WHERE l.pipeline = 'DEALERSHIP'
-     ORDER BY l.updated_at DESC`
+     ORDER BY l.on_lot DESC, l.updated_at DESC`
   );
 
   return {
@@ -256,6 +256,9 @@ async function listConversations() {
       tier: row.tier,
       status: row.dispatch_status || row.status,
       salesperson: row.salesperson_name || "Unassigned",
+      onLot: Boolean(Number(row.on_lot)),
+      onLotAt: row.on_lot_at || null,
+      onLotBadge: Number(row.on_lot) ? "Customer on lot" : "",
       lastMessage: row.last_message || "",
       updatedAt: row.updated_at,
     })),
